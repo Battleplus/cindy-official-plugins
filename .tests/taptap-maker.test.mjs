@@ -543,7 +543,7 @@ test('manifest、手动安装策略和官方 Runtime 版本保持一致', () => 
   assert.deepEqual(manifest.preview.hosts, ['maker.taptap.cn']);
   assert.deepEqual(provisioning.ghosts['taptap-maker'], { audience: { emails: [] } });
   assert.equal(vendorPackage.name, '@taptap/maker');
-  assert.equal(vendorPackage.version, '0.0.32');
+  assert.equal(vendorPackage.version, '0.0.33');
   assert.match(makerMcpSource, /TAPTAP_MAKER_DISTRIBUTION = 'cindy_plugin'/);
   assert.match(makerChildSource, /TAPTAP_MAKER_DISTRIBUTION = 'cindy_plugin'/);
   const statusTool = manifest.tools.find((tool) => tool.name === 'maker_status');
@@ -620,6 +620,92 @@ test('官方 Runtime 保留远端错误结果的 executed 执行态', () => {
     `${functionSource[0]}; normalized = normalizeRemoteProxyExecutionState('executed');`,
   ).runInContext(context);
   assert.equal(context.normalized, 'executed');
+});
+
+test('Runtime 错误包装保留执行三态并禁止自动重试', () => {
+  const names = ['normalizeRemoteProxyExecutionState', 'addRemoteProxyErrorExecutionState'];
+  const functions = names.map((name) => {
+    const match = vendorMakerSource.match(new RegExp('function ' + name + '\\([^]*?\n\\}'));
+    assert.ok(match, name);
+    return match[0];
+  });
+  const context = createContext({ isRecord2: (value) => value !== null && typeof value === 'object' });
+  new Script(functions.join('\n')).runInContext(context);
+  for (const state of ['not_executed', 'executed', 'unknown']) {
+    for (const input of [
+      { isError: true, structuredContent: { execution_state: state } },
+      { isError: true, execution_state: state },
+    ]) {
+      const output = context.addRemoteProxyErrorExecutionState(input);
+      assert.equal(output.structuredContent.execution_state, state);
+      assert.equal(output.structuredContent.automatic_retry, false);
+    }
+  }
+  const missing = context.addRemoteProxyErrorExecutionState({ isError: true });
+  assert.equal(missing.structuredContent.execution_state, 'unknown');
+  assert.equal(missing.structuredContent.automatic_retry, false);
+});
+
+test('Runtime 账号检查仅在明确 BLACKLISTED 时阻止访问', async () => {
+  const match = vendorMakerSource.match(/async function resolveMakerMcpAccessState\([^]*?\n\}/);
+  assert.ok(match);
+  for (const code of [undefined, 'BLACKLISTED', 'UNAUTHORIZED', 'NETWORK_ERROR']) {
+    const context = createContext({
+      MAKER_MCP_BLACKLISTED_MESSAGE: 'Maker account restricted',
+      requestTapAuthWithPat: async () => {
+        if (code) throw Object.assign(new Error('example failure'), { responseCode: code });
+      },
+    });
+    new Script(match[0]).runInContext(context);
+    const result = await context.resolveMakerMcpAccessState('prod');
+    assert.equal(result.blocked, code === 'BLACKLISTED');
+    if (result.blocked) assert.equal(result.message, 'Maker account restricted');
+  }
+});
+
+test('Runtime 仅在落后远端时快进，冲突或不安全状态在提交前停止', async () => {
+  const match = vendorMakerSource.match(/async function pushMakerProject\([^]*?\n\}/);
+  assert.ok(match);
+  const failureMatch = vendorMakerSource.match(/function getBlockingRemoteSyncFailure\([^]*?\n\}/);
+  assert.ok(failureMatch);
+  for (const status of ['needs_pull', 'conflict', 'diverged', 'branch_not_allowed', 'remote_unavailable']) {
+    const calls = [];
+    const context = createContext({
+      path8: { resolve: (value) => value },
+      ensureGitAvailable() {},
+      resolveUsableMakerGitWorkspace: (cwd) => ({ projectRoot: cwd }),
+      loadProjectConfig: () => ({ project_id: 'example-project' }),
+      ensureAuthenticatedOrigin: async () => {},
+      inspectMakerRemoteSyncStatus: async () => ({
+        status: status === 'conflict' ? 'needs_pull' : status,
+        branch: 'main', remoteRef: 'origin/main', nextAction: 'Check remote state',
+      }),
+      runGit: async (args) => {
+        calls.push(Array.from(args));
+        if (status === 'conflict') throw new Error('would be overwritten');
+      },
+      toMakerGitFailure: (error, stage) => ({ stage, stderr: error.message }),
+      readAheadState: async () => ({}),
+      readGit: async () => { calls.push(['status']); return ''; },
+      currentBranch: async () => 'main',
+      readUnpushedCommitState: async () => ({ hasUnpushedCommits: false }),
+    });
+    new Script(match[0] + '\n' + failureMatch[0]).runInContext(context);
+    const result = await context.pushMakerProject({ cwd: '/example-project' });
+    assert.equal(result.committed, false);
+    assert.equal(result.pushed, false);
+    if (status === 'needs_pull') {
+      assert.deepEqual(calls, [['merge', '--ff-only', 'origin/main'], ['status']]);
+      assert.equal(result.failure, undefined);
+    } else if (status === 'conflict') {
+      assert.deepEqual(calls, [['merge', '--ff-only', 'origin/main']]);
+      assert.equal(result.failure.stage, 'pull');
+      assert.match(result.failure.nextAction, /覆盖本地修改/);
+    } else {
+      assert.deepEqual(calls, []);
+      assert.equal(result.failure.stage, 'remote_sync');
+    }
+  }
 });
 
 test('召回文案在四语言中限定 Maker 项目并排除泛 TapTap 和插件源码维护', () => {

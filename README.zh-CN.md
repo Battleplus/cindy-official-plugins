@@ -319,8 +319,11 @@ unzip -Z1 /tmp/my-plugin-1.0.0.cindy
 Cindy 正式稳定版实机上安装真实 `.cindy` 包完成验证。
 
 `taptap-maker/vendor/taptap-maker/` 固定随插件分发官方
-`@taptap/maker@0.0.32`。升级时应整体替换 npm 包发布内容并同步更新插件版本，
-不要单独修改生成后的 `dist/maker.js`。
+`@taptap/maker@0.0.33`。升级时应整体替换 npm 包发布内容并同步更新插件版本，
+保留提交 `ff54f59` 中已有的 Cindy 单行兼容补丁：
+`normalizeRemoteProxyExecutionState` 必须接受 `executed`，避免将确定已执行
+降级为 `unknown`。除这行补丁和保留的 `LICENSE` 外，vendor 内容必须与官方
+npm 包一致，不要对生成后的 bundle 做其他手工修改。
 
 ## 社区
 
