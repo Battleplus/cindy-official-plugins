@@ -663,6 +663,12 @@ test('Runtime 账号检查仅在明确 BLACKLISTED 时阻止访问', async () =>
   }
 });
 
+test('Runtime BLACKLISTED 调用前拦截明确标记 not_executed', () => {
+  const match = vendorMakerSource.match(/if \(accessState\.blocked\) \{[\s\S]*?content: \[\{ type: "text", text: accessState\.message \}\][\s\S]*?\n    \}/);
+  assert.ok(match);
+  assert.match(match[0], /execution_state: "not_executed"/);
+});
+
 test('Runtime 仅在落后远端时快进，冲突或不安全状态在提交前停止', async () => {
   const match = vendorMakerSource.match(/async function pushMakerProject\([^]*?\n\}/);
   assert.ok(match);

@@ -46736,7 +46736,8 @@ async function startMakerMcpServer() {
     if (accessState.blocked) {
       return {
         isError: true,
-        content: [{ type: "text", text: accessState.message }]
+        content: [{ type: "text", text: accessState.message }],
+        execution_state: "not_executed"
       };
     }
     const startedAt = Date.now();
