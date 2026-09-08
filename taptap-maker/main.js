@@ -700,7 +700,9 @@ async function handleTool(message) {
     }
     var available = await listMakerTools(callContext.workdir);
     if (!available.some(function sameTool(tool) { return tool.name === args.name; })) {
-      throw new Error('Maker 动态工具不存在或当前不可用：' + args.name);
+      return makerErrorResult('Maker 动态工具不存在或当前不可用：' + args.name, {
+        execution_state: 'not_executed', automatic_retry: false,
+      });
     }
     var toolArgs = Object.assign({}, args.args || {}, { target_dir: callContext.workdir });
     return callMakerToolWithIdentityRecovery(

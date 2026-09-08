@@ -320,10 +320,19 @@ Cindy 正式稳定版实机上安装真实 `.cindy` 包完成验证。
 
 `taptap-maker/vendor/taptap-maker/` 固定随插件分发官方
 `@taptap/maker@0.0.33`。升级时应整体替换 npm 包发布内容并同步更新插件版本，
-保留提交 `ff54f59` 中已有的 Cindy 单行兼容补丁：
-`normalizeRemoteProxyExecutionState` 必须接受 `executed`，避免将确定已执行
-降级为 `unknown`。除这行补丁和保留的 `LICENSE` 外，vendor 内容必须与官方
-npm 包一致，不要对生成后的 bundle 做其他手工修改。
+在官方包包含等价修复前，保留以下经审查的 Cindy 兼容补丁：
+
+- `normalizeRemoteProxyExecutionState` 接受 `executed`，保留确定已执行状态
+  （最初补丁：`ff54f59`）。
+- BLACKLISTED 的 `tools/call` 拦截返回 `structuredContent`，包含
+  `success: false`、原提示和 `execution_state: "not_executed"`，确保 Cindy
+  错误清洗后仍保留执行态。
+- `tools/list`、`resources/read`、`tools/call` 按请求检查账号访问状态，
+  不使用启动时的 `accessStatePromise` 缓存；更换 PAT 后无需等待旧 Runtime
+  进程过期。每次上述请求增加一次鉴权检查，但不改变上游访问限制策略。
+
+除以上补丁和保留的 `LICENSE` 外，vendor 文件必须与官方 npm 包一致。
+每次升级都需核对补丁清单和回归测试，不要增加无关的 bundle 手工修改。
 
 ## 社区
 

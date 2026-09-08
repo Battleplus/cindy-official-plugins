@@ -5,8 +5,11 @@ This plugin ships a vendored copy of the official @taptap/maker npm package
 (version 0.0.33, MIT, https://github.com/taptap/instant-games-open-mcp). Its
 MIT license text is reproduced in vendor/taptap-maker/LICENSE, which covers
 TapTap's own code only.
-The bundle retains Cindy's existing single-line compatibility patch from
-commit ff54f59 to preserve the remote executed execution state.
+The bundle retains three Cindy compatibility patches: preserve the remote
+executed execution state (original commit ff54f59), return structured
+not_executed state for BLACKLISTED tool-call rejections, and check access per
+request rather than caching it at startup. The paired repository READMEs
+document this complete patch list for future upgrades.
 
 vendor/taptap-maker/dist/maker.js is an esbuild bundle produced upstream. It
 additionally embeds the open-source packages listed below, and was built

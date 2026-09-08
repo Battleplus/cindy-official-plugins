@@ -674,10 +674,47 @@ test('Runtime 不缓存黑名单访问状态，调用入口按请求重新检查
   assert.ok((source.match(/await resolveMakerMcpAccessState\(getMakerEnvironment\(\)\)/g) || []).length >= 3);
 });
 
-test('Runtime BLACKLISTED 调用前拦截明确标记 not_executed', () => {
-  const match = vendorMakerSource.match(/if \(accessState\.blocked\) \{[\s\S]*?content: \[\{ type: "text", text: accessState\.message \}\][\s\S]*?\n    \}/);
-  assert.ok(match);
-  assert.match(match[0], /execution_state: "not_executed"/);
+test('Runtime BLACKLISTED 列表短路和调用拦截均将未执行状态传给插件最终结果', async () => {
+  function blockedBranch(schema, endMarker) {
+    const start = vendorMakerSource.indexOf('server.setRequestHandler(' + schema);
+    assert.ok(start >= 0);
+    const blockStart = vendorMakerSource.indexOf('    if (accessState.blocked)', start);
+    const blockEnd = vendorMakerSource.indexOf(endMarker, blockStart);
+    assert.ok(blockEnd > blockStart);
+    const context = createContext({
+      tools: [{ name: 'maker_status_lite' }],
+      accessState: { blocked: true, message: 'Maker account restricted' },
+    });
+    return new Script('(function () {' + vendorMakerSource.slice(blockStart, blockEnd) + '})()')
+      .runInContext(context);
+  }
+  const blockedList = blockedBranch('ListToolsRequestSchema', '    const contextPromise');
+  const blockedCall = blockedBranch('CallToolRequestSchema', '    const startedAt');
+  for (const name of ['create_video_task', 'confirm_character_voice']) {
+    for (const listBlocked of [true, false]) {
+      let restored = false;
+      const harness = createMainHarness(async (request) => {
+        if (restored) return imageNodeResponder(request);
+        if (request.method === 'cindy/tools-list') {
+          return listBlocked ? { ok: true, result: blockedList } : imageNodeResponder(request);
+        }
+        assert.equal(request.method, 'tools/call');
+        return { ok: true, result: blockedCall };
+      });
+      const result = await callImage(harness, name);
+      assert.equal(result.ok, true); // Host delivered a structured MCP error result.
+      assert.equal(result.result.isError, true);
+      assert.equal(result.result.structuredContent.execution_state, 'not_executed');
+      assert.notEqual(result.result.structuredContent.automatic_retry, true);
+      assert.equal(harness.nodeRequests.filter((req) => req.method === 'tools/call').length,
+        listBlocked ? 0 : 1);
+      assert.match(result.result.content[0].text, listBlocked ? /不存在或当前不可用/ : /restricted/);
+      restored = true;
+      const recovered = await callImage(harness, name);
+      assert.equal(recovered.ok, true);
+      assert.equal(recovered.result.isError, undefined);
+    }
+  }
 });
 
 test('Runtime 仅在落后远端时快进，冲突或不安全状态在提交前停止', async () => {

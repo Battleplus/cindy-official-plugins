@@ -385,11 +385,22 @@ a real device running an eligible stable production Cindy build.
 
 `taptap-maker/vendor/taptap-maker/` ships the official `@taptap/maker@0.0.33`
 with the plugin. When upgrading, replace the published npm package content
-wholesale and bump the plugin version accordingly. Preserve the existing
-single-line Cindy compatibility patch from commit `ff54f59`: accept `executed`
-in `normalizeRemoteProxyExecutionState`, so a confirmed execution is not changed
-to `unknown`. Apart from this patch and the retained `LICENSE`, the vendor content
-must match the official npm package; do not make other manual bundle edits.
+wholesale and bump the plugin version accordingly. Preserve these reviewed Cindy
+compatibility patches until the official package includes equivalent fixes:
+
+- `normalizeRemoteProxyExecutionState` accepts `executed`, preserving confirmed
+  execution (original patch: `ff54f59`).
+- The BLACKLISTED `tools/call` rejection includes `structuredContent` with
+  `success: false`, its message, and `execution_state: "not_executed"`, so Cindy's
+  error sanitizer retains the execution state.
+- `tools/list`, `resources/read`, and `tools/call` check account access per request
+  instead of using a startup-only `accessStatePromise`; PAT changes take effect
+  without waiting for the old Runtime process to expire. This adds an authentication
+  check to each of these requests; it does not change the upstream access policy.
+
+Apart from these patches and the retained `LICENSE`, vendor files must match the
+official npm package. Recheck the patch list and regression tests on every upgrade;
+do not add unrelated manual bundle edits.
 
 ## Community
 
