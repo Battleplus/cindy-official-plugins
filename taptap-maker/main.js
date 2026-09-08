@@ -133,6 +133,35 @@ async function listMakerTools(workdir) {
 }
 
 async function callMakerTool(name, args, longRunning) {
+  var preferenceKey;
+  var mediaLabel;
+  if (name === 'generate_image' || name === 'batch_generate_images' || name === 'edit_image') {
+    preferenceKey = 'makerImageEnabled';
+    mediaLabel = '生图';
+  } else if (name === 'create_video_task') {
+    preferenceKey = 'makerVideoEnabled';
+    mediaLabel = '生视频';
+  } else if (['text_to_music', 'text_to_sound_effect', 'batch_sound_effects', 'text_to_dialogue',
+    'audition_voices_for_character', 'confirm_character_voice'].includes(name)) {
+    preferenceKey = 'makerAudioEnabled';
+    mediaLabel = '生音频';
+  }
+  if (preferenceKey) {
+    var preferences;
+    try {
+      var response = await fetch('/kv');
+      if (!response.ok) throw new Error();
+      preferences = await response.json();
+      if (!isObject(preferences)
+        || (Object.prototype.hasOwnProperty.call(preferences, preferenceKey)
+          && typeof preferences[preferenceKey] !== 'boolean')) throw new Error();
+    } catch (_error) {
+      throw new Error('Maker ' + mediaLabel + '设置读取失败，本次未发送请求，请重新打开插件设置检查');
+    }
+    if (preferences[preferenceKey] === false) {
+      throw new Error('maker ' + mediaLabel + '被禁用，请使用其他' + mediaLabel + '工具');
+    }
+  }
   var progressToken = longRunning ? 'cindy-maker-' + nextProgressToken++ : null;
   return nodeRequest({
     method: 'tools/call',
