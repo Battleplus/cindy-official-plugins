@@ -708,7 +708,14 @@ test('Runtime BLACKLISTED 列表短路和调用拦截均将未执行状态传给
       assert.notEqual(result.result.structuredContent.automatic_retry, true);
       assert.equal(harness.nodeRequests.filter((req) => req.method === 'tools/call').length,
         listBlocked ? 0 : 1);
-      assert.match(result.result.content[0].text, listBlocked ? /不存在或当前不可用/ : /restricted/);
+      assert.match(result.result.content[0].text, /restricted/);
+      if (listBlocked) {
+        assert.equal(result.result.structuredContent.code, 'BLACKLISTED');
+        const listed = await harness.call('maker_list_tools', { session_context: imageSessionContext });
+        assert.equal(listed.result.isError, true);
+        assert.equal(listed.result.structuredContent.execution_state, 'not_executed');
+        assert.match(listed.result.content[0].text, /restricted/);
+      }
       restored = true;
       const recovered = await callImage(harness, name);
       assert.equal(recovered.ok, true);

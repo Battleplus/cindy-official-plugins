@@ -327,6 +327,9 @@ Cindy 正式稳定版实机上安装真实 `.cindy` 包完成验证。
 - BLACKLISTED 的 `tools/call` 拦截返回 `structuredContent`，包含
   `success: false`、原提示和 `execution_state: "not_executed"`，确保 Cindy
   错误清洗后仍保留执行态。
+- BLACKLISTED 的 `tools/list` 保留受限工具列表，并通过 `_meta.maker_access`
+  携带原始错误码和提示。Cindy 在发送调用前返回账号受限原因和 `not_executed`，
+  不再将其替换为通用的工具不存在提示。
 - `tools/list`、`resources/read`、`tools/call` 按请求检查账号访问状态，
   不使用启动时的 `accessStatePromise` 缓存；更换 PAT 后无需等待旧 Runtime
   进程过期。每次上述请求增加一次鉴权检查，但不改变上游访问限制策略。

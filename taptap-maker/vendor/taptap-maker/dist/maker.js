@@ -46668,7 +46668,10 @@ async function startMakerMcpServer() {
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     const accessState = await resolveMakerMcpAccessState(getMakerEnvironment());
     if (accessState.blocked) {
-      return { tools: [tools[0]] };
+      return {
+        tools: [tools[0]],
+        _meta: { maker_access: { code: "BLACKLISTED", message: accessState.message } }
+      };
     }
     const contextPromise = resolveMakerMcpTrackingContext({ listClientRoots });
     void reportMakerMcpStartupFromPromise(contextPromise, startupReportedProjects);

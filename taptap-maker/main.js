@@ -126,6 +126,15 @@ async function listMakerTools(workdir) {
     params: { target_dir: workdir },
     timeoutMs: 60000,
   });
+  var access = isObject(result) && isObject(result._meta) ? result._meta.maker_access : null;
+  if (isObject(access) && access.code === 'BLACKLISTED') {
+    return makerErrorResult(
+      typeof access.message === 'string' && access.message
+        ? redactSensitiveText(access.message, true)
+        : '当前 Maker 账号已被限制，请检查账号权限。',
+      { code: 'BLACKLISTED', execution_state: 'not_executed', automatic_retry: false },
+    );
+  }
   var tools = isObject(result) && Array.isArray(result.tools) ? result.tools : [];
   return tools.filter(function visible(tool) {
     return isObject(tool) && typeof tool.name === 'string' && !FIXED_MAKER_TOOLS[tool.name];
@@ -685,7 +694,8 @@ async function handleTool(message) {
   }
   if (message.tool === 'maker_list_tools') {
     var listContext = requireLocalContext(message);
-    return { tools: await listMakerTools(listContext.workdir) };
+    var listedTools = await listMakerTools(listContext.workdir);
+    return Array.isArray(listedTools) ? { tools: listedTools } : listedTools;
   }
   if (message.tool === 'maker_call_tool') {
     var callContext = requireLocalContext(message);
@@ -699,6 +709,7 @@ async function handleTool(message) {
       throw new Error('固定 Maker 工具必须使用 maker_status 或 maker_build');
     }
     var available = await listMakerTools(callContext.workdir);
+    if (!Array.isArray(available)) return available;
     if (!available.some(function sameTool(tool) { return tool.name === args.name; })) {
       return makerErrorResult('Maker 动态工具不存在或当前不可用：' + args.name, {
         execution_state: 'not_executed', automatic_retry: false,
