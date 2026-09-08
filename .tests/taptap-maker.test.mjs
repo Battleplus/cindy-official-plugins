@@ -182,6 +182,7 @@ test('关闭后单张、批量和改图均不发送，精确返回简短提示�
     const result = await callImage(harness, name);
     assert.equal(result.ok, false);
     assert.equal(result.message, 'maker 生图被禁用，请使用其他生图工具');
+    assert.equal(result.execution_state, 'not_executed');
     assert.equal(harness.nodeRequests.filter((request) => request.method === 'tools/call').length, 0);
   }
 });
@@ -217,6 +218,7 @@ test('读取失败和损坏的生图设置不放行，非生图调用不读取�
     const result = await callImage(harness);
     assert.equal(result.ok, false);
     assert.match(result.message, /设置读取失败.*未发送/);
+    assert.equal(result.execution_state, 'not_executed');
     assert.equal(harness.nodeRequests.filter((request) => request.method === 'tools/call').length, 0);
     assert.equal((await callImage(harness, 'query_video_task')).ok, true);
     assert.equal((await harness.call('maker_status', { session_context: imageSessionContext })).ok, true);

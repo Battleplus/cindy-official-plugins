@@ -156,10 +156,14 @@ async function callMakerTool(name, args, longRunning) {
         || (Object.prototype.hasOwnProperty.call(preferences, preferenceKey)
           && typeof preferences[preferenceKey] !== 'boolean')) throw new Error();
     } catch (_error) {
-      throw new Error('Maker ' + mediaLabel + '设置读取失败，本次未发送请求，请重新打开插件设置检查');
+      var settingsError = new Error('Maker ' + mediaLabel + '设置读取失败，本次未发送请求，请重新打开插件设置检查');
+      settingsError.execution_state = 'not_executed';
+      throw settingsError;
     }
     if (preferences[preferenceKey] === false) {
-      throw new Error('maker ' + mediaLabel + '被禁用，请使用其他' + mediaLabel + '工具');
+      var disabledError = new Error('maker ' + mediaLabel + '被禁用，请使用其他' + mediaLabel + '工具');
+      disabledError.execution_state = 'not_executed';
+      throw disabledError;
     }
   }
   var progressToken = longRunning ? 'cindy-maker-' + nextProgressToken++ : null;
@@ -740,6 +744,7 @@ async function sendToolResult(message) {
       callId: message.callId,
       ok: false,
       message: redactSensitiveText(errorMessage(error), true).slice(0, 2000),
+      ...(error && error.execution_state ? { execution_state: error.execution_state } : {}),
     });
   }
 }
