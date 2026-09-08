@@ -665,6 +665,12 @@ test('Runtime 账号检查仅在明确 BLACKLISTED 时阻止访问', async () =>
   }
 });
 
+test('Runtime 不缓存黑名单访问状态，调用入口按请求重新检查', () => {
+  const source = vendorMakerSource;
+  assert.doesNotMatch(source, /const accessStatePromise = resolveMakerMcpAccessState/);
+  assert.ok((source.match(/await resolveMakerMcpAccessState\(getMakerEnvironment\(\)\)/g) || []).length >= 3);
+});
+
 test('Runtime BLACKLISTED 调用前拦截明确标记 not_executed', () => {
   const match = vendorMakerSource.match(/if \(accessState\.blocked\) \{[\s\S]*?content: \[\{ type: "text", text: accessState\.message \}\][\s\S]*?\n    \}/);
   assert.ok(match);

@@ -46649,7 +46649,6 @@ function createRemoteProxyCallToolOptions(progressToken, extra) {
 }
 async function startMakerMcpServer() {
   startMakerPackageUpdateCheck({ currentVersion: VERSION });
-  const accessStatePromise = resolveMakerMcpAccessState(getMakerEnvironment());
   const server = new Server(
     {
       name: "taptap-maker",
@@ -46667,7 +46666,7 @@ async function startMakerMcpServer() {
   const remoteProxyManager = createMakerRemoteProxyManager();
   const startupReportedProjects = /* @__PURE__ */ new Set();
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const accessState = await accessStatePromise;
+    const accessState = await resolveMakerMcpAccessState(getMakerEnvironment());
     if (accessState.blocked) {
       return { tools: [tools[0]] };
     }
@@ -46685,7 +46684,7 @@ async function startMakerMcpServer() {
     if (uri !== "maker://status" && uri !== MAKER_ADS_INTEGRATION_GUIDE_URI) {
       throw new McpError(ErrorCode.InvalidParams, `Unknown Maker resource: ${uri}`);
     }
-    const accessState = await accessStatePromise;
+    const accessState = await resolveMakerMcpAccessState(getMakerEnvironment());
     if (uri === "maker://status" && accessState.blocked) {
       return {
         contents: [
@@ -46732,7 +46731,7 @@ async function startMakerMcpServer() {
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     var _a3, _b;
     const name = request.params.name;
-    const accessState = await accessStatePromise;
+    const accessState = await resolveMakerMcpAccessState(getMakerEnvironment());
     if (accessState.blocked) {
       return {
         isError: true,
