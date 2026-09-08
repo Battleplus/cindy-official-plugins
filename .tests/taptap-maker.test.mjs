@@ -302,6 +302,7 @@ test('各类默认开启且独立拦截；视频查询始终保留', async () =>
       const result = await callImage(harness, name);
       assert.equal(result.ok, false);
       assert.equal(result.message, 'maker ' + group.label + '被禁用，请使用其他' + group.label + '工具');
+      assert.equal(result.structuredContent.execution_state, 'not_executed');
     }
     assert.equal(harness.nodeRequests.filter((request) => request.method === 'tools/call').length, before);
     for (const other of mediaGroups.filter((other) => other !== group)) {
