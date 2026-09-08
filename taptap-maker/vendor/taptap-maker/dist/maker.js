@@ -46736,7 +46736,11 @@ async function startMakerMcpServer() {
       return {
         isError: true,
         content: [{ type: "text", text: accessState.message }],
-        execution_state: "not_executed"
+        structuredContent: {
+          success: false,
+          message: accessState.message,
+          execution_state: "not_executed"
+        }
       };
     }
     const startedAt = Date.now();

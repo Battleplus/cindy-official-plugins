@@ -745,6 +745,13 @@ async function sendToolResult(message) {
       ok: false,
       message: redactSensitiveText(errorMessage(error), true).slice(0, 2000),
       ...(error && error.execution_state ? { execution_state: error.execution_state } : {}),
+      ...(error && error.execution_state ? {
+        structuredContent: {
+          success: false,
+          message: redactSensitiveText(errorMessage(error), true).slice(0, 2000),
+          execution_state: error.execution_state,
+        },
+      } : {}),
     });
   }
 }
