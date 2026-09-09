@@ -51917,6 +51917,7 @@ function installUserSkills(projectRoot, stagingDir, skillNames) {
   if (skillNames.length === 0) {
     return;
   }
+  assertSafeUserSkillRoots(projectRoot);
   const installerDir = path26.join(projectRoot, ".installer");
   const sourceDir = path26.join(installerDir, "skills");
   const transactionDir = path26.join(installerDir, `.user-skills-${randomUUID3()}`);
@@ -51963,6 +51964,7 @@ function installUserSkillsForClients(projectRoot, skillNames) {
   if (skillNames.length === 0) {
     return;
   }
+  assertSafeUserSkillRoots(projectRoot);
   const sourceRoot = path26.join(projectRoot, ".installer", "skills");
   const transactionDir = path26.join(
     projectRoot,
