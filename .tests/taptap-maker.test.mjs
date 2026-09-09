@@ -674,6 +674,19 @@ test('Runtime 不缓存黑名单访问状态，调用入口按请求重新检查
   assert.ok((source.match(/await resolveMakerMcpAccessState\(getMakerEnvironment\(\)\)/g) || []).length >= 3);
 });
 
+test('Runtime user-skills pull 拒绝写入根路径中的符号链接', () => {
+  const match = vendorMakerSource.match(/function assertSafeUserSkillRoots\([^]*?\n\}/);
+  assert.ok(match);
+  const calls = [];
+  const context = createContext({
+    path26: { join: (...parts) => parts.join('/') },
+    pathExists: (value) => value.endsWith('/.codex'),
+    fs25: { lstatSync: () => ({ isSymbolicLink: () => true }) },
+  });
+  new Script(match[0]).runInContext(context);
+  assert.throws(() => context.assertSafeUserSkillRoots('/example-project'), /符号链接/);
+});
+
 test('Runtime BLACKLISTED 列表短路和调用拦截均将未执行状态传给插件最终结果', async () => {
   function blockedBranch(schema, endMarker) {
     const start = vendorMakerSource.indexOf('server.setRequestHandler(' + schema);

@@ -51738,6 +51738,7 @@ async function pullMakerUserSkills(options2 = {}) {
     throw new Error("Maker authentication not found. Run `taptap-maker login` and try again.");
   }
   const sourceDir = path26.join(project.projectRoot, ".installer", "skills");
+  assertSafeUserSkillRoots(project.projectRoot);
   const tempDir = fs25.mkdtempSync(path26.join(os8.tmpdir(), "taptap-maker-user-skills-"));
   const archivePath = path26.join(tempDir, "user-skills.zip");
   const stagingDir = path26.join(tempDir, "skills");
@@ -51773,6 +51774,17 @@ async function pullMakerUserSkills(options2 = {}) {
     };
   } finally {
     fs25.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+function assertSafeUserSkillRoots(projectRoot) {
+  for (const relative of [".installer/skills", ".codex/skills", ".cursor/skills", ".workbuddy/skills"]) {
+    let current = projectRoot;
+    for (const segment of relative.split("/")) {
+      current = path26.join(current, segment);
+      if (pathExists(current) && fs25.lstatSync(current).isSymbolicLink()) {
+        throw new Error("Maker user Skill 安装目标包含符号链接，为安全起见已停止。");
+      }
+    }
   }
 }
 async function writeArchiveResponse(response, archivePath) {

@@ -396,6 +396,7 @@ compatibility patches until the official package includes equivalent fixes:
 - The BLACKLISTED `tools/list` response retains the restricted tool list and adds
   `_meta.maker_access` with the original code and message. Cindy returns the account
   restriction and `not_executed` before dispatch rather than a generic missing-tool error.
+- `user-skills pull` rejects existing symlinks in all project/client skill roots before any write.
 - `tools/list`, `resources/read`, and `tools/call` check account access per request
   instead of using a startup-only `accessStatePromise`; PAT changes take effect
   without waiting for the old Runtime process to expire. This adds an authentication
