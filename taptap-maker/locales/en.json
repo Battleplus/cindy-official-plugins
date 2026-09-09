@@ -70,7 +70,7 @@
       }
     },
     "maker_list_tools": {
-      "description": "List the bundled Runtime's fixed Maker tool catalog and schema snapshot. It is not a live workspace availability probe; calls still depend on account access, project state, and the remote service. Call it before maker_call_tool; never bypass the plugin with Shell, CLI, npx, or direct MCP."
+      "description": "List the bundled Runtime's fixed Maker tool catalog and schema snapshot. It is not a live workspace availability probe; restricted accounts may receive an account restriction message instead of the dynamic catalog, and calls still depend on account access, project state, and the remote service. Call it before maker_call_tool; never bypass the plugin with Shell, CLI, npx, or direct MCP."
     },
     "maker_call_tool": {
       "description": "Call an official Maker dynamic tool just returned by maker_list_tools in the current workspace; never bypass the plugin with Shell, CLI, npx, or direct MCP. If .project/project.json is missing, explain that building submits and pushes the project, then call maker_build only after confirmation and retry. The plugin initializes identity and retries once only for a safely recoverable missing_taptap_identity result (execution_state is absent or explicitly not_executed); it does not retry executed or unknown. Only the exact error “MCP error -32600: INSUFFICIENT_BALANCE” means insufficient credits; offer Art only after confirmation. Maker image, video and audio switches default to on. Disabled calls are not sent and only return a disabled message suggesting other tools. Image covers single/batch generation and edits; video blocks creation, not queries; audio covers music, effects, dialogue, voice previews and confirmation.",
