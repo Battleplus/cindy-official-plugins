@@ -24,6 +24,9 @@ function attachUpgrade(server,port,sockets,authorized=()=>false){
    socket.write('HTTP/1.1 101 Switching Protocols\r\n'+Object.entries(response.headers).map(([k,v])=>`${k}: ${v}`).join('\r\n')+'\r\n\r\n');
    if(head.length)upstream.write(head);if(upHead.length)socket.write(upHead);
    socket.pipe(upstream);upstream.pipe(socket);
+   // WebSocket traffic includes automatic pong and stream negotiation.
+   // The controller reports trusted pointer/key/wheel input separately;
+   // network traffic alone must never postpone idle shutdown.
    for(const [a,b] of [[socket,upstream],[upstream,socket]]){a.on('error',()=>b.destroy());a.on('close',()=>{sockets.delete(a);b.destroy();});}
   });
   request.on('response',()=>socket.destroy());request.on('error',()=>socket.destroy());socket.on('error',()=>request.destroy());socket.on('close',()=>request.destroy());request.end();
