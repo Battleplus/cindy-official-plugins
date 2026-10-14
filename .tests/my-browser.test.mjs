@@ -8,6 +8,8 @@ import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import readline from 'node:readline';
 import path from 'node:path';
+import fs from 'node:fs/promises';
+import os from 'node:os';
 import {webcrypto} from 'node:crypto';
 const require = createRequire(import.meta.url);
 const {createBridge,EXT_ID} = require('../my-browser/node/bridge.cjs');
@@ -190,7 +192,8 @@ test('explicitly blocked tabs and redirected content are redacted by bridge even
   const redirected=await roundtrip('text',{ok:true,url:'https://blocked.test',text:'private'});assert.equal(redirected.error,'REDIRECT_BLOCKED');assert.equal(redirected.text,undefined);
 });
 test('production stdio worker returns JSON-RPC and exits when host closes stdin',async t=>{
-  const child=spawn(process.execPath,['-e','require(process.argv[1])',path.resolve(import.meta.dirname,'../my-browser/node/worker.cjs')],{stdio:['pipe','pipe','pipe']});
+  const home=await fs.mkdtemp(path.join(os.tmpdir(),'cindy-worker-test-'));t.after(()=>fs.rm(home,{recursive:true,force:true}));
+  const child=spawn(process.execPath,['-e','require(process.argv[1])',path.resolve(import.meta.dirname,'../my-browser/node/worker.cjs')],{stdio:['pipe','pipe','pipe'],env:{...process.env,HOME:home,USERPROFILE:home,LOCALAPPDATA:home,XDG_CONFIG_HOME:home}});
   t.after(()=>child.kill());
   const lines=readline.createInterface({input:child.stdout});
   const answer=once(lines,'line');child.stdin.write(JSON.stringify({jsonrpc:'2.0',id:'fixture-id',method:'status',params:{}})+'\n');

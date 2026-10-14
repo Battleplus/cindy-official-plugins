@@ -10,7 +10,8 @@
     SUBTITLE_RESPONSE_INVALID:['YouTube returned unreadable caption data. Translation has not started.','YouTube 返回的字幕数据无法解析，尚未开始翻译。'],
     SUBTITLE_FETCH_FAILED:['The YouTube caption request failed. Check the connection and retry. Translation has not started.','YouTube 字幕请求失败，请检查网络后重试。尚未开始翻译。'],
     SUBTITLE_TIMEOUT:['The YouTube caption request timed out. Retry reading captions. Translation has not started.','读取 YouTube 字幕超时，请重试。尚未开始翻译。'],
-    PAIRING_REQUIRED:['Confirm this browser in Cindy Chrome settings.','请在 Cindy Chrome 设置中确认此浏览器连接。'],
+    NATIVE_BINDING_UNAVAILABLE:['Update Cindy Chrome and the browser extension, then keep Cindy open while they reconnect automatically.','请更新 Cindy Chrome 插件和浏览器扩展，并保持 Cindy 运行，连接会自动恢复。'],
+    PAIRING_REQUIRED:['Keep Cindy running with Cindy Chrome enabled; the official extension reconnects automatically. Unsupported extensions must be replaced with the Chrome Web Store version.','保持 Cindy 运行并启用 Cindy Chrome，官方扩展会自动重连。不支持的扩展请换成 Chrome 网上应用店版本。'],
     BRIDGE_PORTS_BUSY:['All local bridge ports are occupied. Close stale plugin instances and check the connection again.','本机桥接备用端口均被占用，请关闭残留的插件实例后重新检查连接。'],
     BRIDGE_LISTEN_DENIED:['The system denied the local listener. Check security software or administrator policy.','系统拒绝创建本机监听，请检查安全软件或管理员策略。'],
     BRIDGE_START_FAILED:['The local bridge could not start. Check the Cindy runtime log.','本机桥接服务未能启动，请查看 Cindy 运行日志。'],
@@ -22,7 +23,7 @@
     SUBTITLE_UNAVAILABLE:['No readable captions were obtained. Check whether this video provides captions, or import SRT / VTT.','未取得可读取的字幕，请确认此视频提供字幕，或导入 SRT / VTT。'],
     BRIDGE_REQUEST_FAILED:['The browser bridge request failed. Check Cindy’s runtime log for details.','浏览器桥接请求失败，请查看 Cindy 运行日志中的错误详情。'],
     NODE_UNAVAILABLE:['Cindy could not communicate with the browser bridge process. Check the plugin’s connection status.','Cindy 无法与浏览器桥接进程通信，请检查插件连接状态。'],
-    SESSION_CHANGED:['The browser connection session changed. Check its pairing in Cindy Chrome.','浏览器连接会话已变化，请在 Cindy Chrome 中检查配对状态。'],
+    SESSION_CHANGED:['The browser connection changed and will reconnect automatically. Keep Cindy Chrome enabled; if it stays disconnected, check its connection diagnostics.','浏览器连接已变化，将自动重连。请保持 Cindy Chrome 启用；若仍未连接，请查看其连接诊断。'],
     REQUEST_EXPIRED:['This request has expired. Retry the unfinished content.','本次请求已过期，请重试未完成的内容。'],
     CANCELLED:['Cancelled.','已取消。']
   });
