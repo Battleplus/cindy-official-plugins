@@ -66098,6 +66098,10 @@ var require_worker = __commonJS({
   "src/worker.cjs"(exports2, module2) {
     "use strict";
     var readline = require("node:readline");
+    var fs = require("node:fs/promises");
+    var { constants: fsConstants } = require("node:fs");
+    var path = require("node:path");
+    var { createHash } = require("node:crypto");
     var { ImapFlow } = require_imap_flow();
     var nodemailer = require_nodemailer();
     var { simpleParser } = require_mailparser();
@@ -66107,8 +66111,10 @@ var require_worker = __commonJS({
       smtpHost: "smtp.qq.com",
       smtpPort: 465
     });
+    var MAX_ATTACHMENT_BYTES = 32 * 1024 * 1024;
+    var MAX_ATTACHMENTS = 10;
     var MAX_BODY_CHARS = 2e4;
-    var MAX_SOURCE_BYTES = 12 * 1024 * 1024;
+    var MAX_SOURCE_BYTES = 48 * 1024 * 1024;
     var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     var SECRET_KEY = "qq_mail_authorization_code";
     function normalizeCredentials(value) {
@@ -66368,7 +66374,8 @@ var require_worker = __commonJS({
           attachments: Array.isArray(parsed.attachments) ? parsed.attachments.map((attachment) => ({
             filename: attachment.filename || null,
             content_type: attachment.contentType || null,
-            size: Number.isFinite(attachment.size) ? attachment.size : null
+            size: Number.isFinite(attachment.size) ? attachment.size : null,
+            sha256: Buffer.isBuffer(attachment.content) ? createHash("sha256").update(attachment.content).digest("hex") : null
           })) : []
         };
       }));
@@ -66395,12 +66402,67 @@ var require_worker = __commonJS({
         disableUrlAccess: true
       };
     }
-    async function sendMessage(credentials, action, deps) {
+    async function attachmentFileOperation(operation) {
+      try {
+        return await operation();
+      } catch {
+        throw new Error("ATTACHMENT_UNREADABLE");
+      }
+    }
+    async function prepareMailOptions(credentials, action) {
+      const options = mailOptions(credentials, action);
+      if (action.attachment_paths === void 0) return options;
+      const paths = action.attachment_paths;
+      if (!Array.isArray(paths) || paths.length > MAX_ATTACHMENTS || paths.some((file) => typeof file !== "string" || !path.isAbsolute(file) || /[\r\n\0]/.test(file))) {
+        throw new Error("INVALID_ATTACHMENT_PATHS");
+      }
+      let total = 0;
+      const attachments = [];
+      for (const file of paths) {
+        let handle;
+        try {
+          handle = await attachmentFileOperation(() => fs.open(file, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK || 0)));
+          const stat = await attachmentFileOperation(() => handle.stat());
+          if (!stat.isFile()) throw new Error("ATTACHMENT_NOT_FILE");
+          const remaining = MAX_ATTACHMENT_BYTES - total;
+          if (stat.size > remaining) throw new Error("ATTACHMENTS_TOO_LARGE");
+          const buffer = Buffer.alloc(Math.min(64 * 1024, remaining + 1));
+          const chunks = [];
+          let length = 0;
+          while (true) {
+            const { bytesRead } = await attachmentFileOperation(() => handle.read(buffer, 0, Math.min(buffer.length, remaining - length + 1), null));
+            if (bytesRead === 0) break;
+            length += bytesRead;
+            if (length > remaining) throw new Error("ATTACHMENTS_TOO_LARGE");
+            chunks.push(Buffer.from(buffer.subarray(0, bytesRead)));
+          }
+          const content = Buffer.concat(chunks, length);
+          total += length;
+          attachments.push({ filename: path.basename(file), content });
+        } finally {
+          if (handle) await attachmentFileOperation(() => handle.close());
+        }
+      }
+      if (attachments.length) options.attachments = attachments;
+      return options;
+    }
+    function attachmentSummary(options) {
+      return (options.attachments || []).map(({ filename, content }) => ({
+        filename,
+        size: content.length,
+        sha256: createHash("sha256").update(content).digest("hex")
+      }));
+    }
+    async function sendMessage(credentials, action, deps, execution) {
+      const options = await prepareMailOptions(credentials, action);
       const transporter = deps.createSmtp(credentials);
       try {
-        const info = await transporter.sendMail(mailOptions(credentials, action));
+        execution.state = "unknown";
+        const info = await transporter.sendMail(options);
+        execution.state = "executed";
         return {
           sent: true,
+          attachments: attachmentSummary(options),
           message_id: info.messageId || null,
           accepted: Array.isArray(info.accepted) ? info.accepted.map(String) : [],
           rejected: Array.isArray(info.rejected) ? info.rejected.map(String) : []
@@ -66417,16 +66479,20 @@ var require_worker = __commonJS({
       if (fallback) return fallback.path;
       throw new Error("DRAFT_FOLDER_NOT_FOUND");
     }
-    async function saveDraft(credentials, action, deps) {
+    async function saveDraft(credentials, action, deps, execution) {
+      const options = await prepareMailOptions(credentials, action);
       const composer = deps.createComposer();
       try {
-        const info = await composer.sendMail(mailOptions(credentials, action));
+        const info = await composer.sendMail(options);
         if (!info || !Buffer.isBuffer(info.message)) throw new Error("DRAFT_BUILD_FAILED");
-        return withImap(credentials, deps, async (client) => {
+        return await withImap(credentials, deps, async (client) => {
           const folder = await findDraftFolder(client);
+          execution.state = "unknown";
           const appended = await client.append(folder, info.message, ["\\Draft"], /* @__PURE__ */ new Date());
+          execution.state = "executed";
           return {
             draft: true,
+            attachments: attachmentSummary(options),
             folder,
             uid: appended && appended.uid ? appended.uid : null,
             uid_validity: appended && appended.uidValidity ? String(appended.uidValidity) : null
@@ -66436,7 +66502,7 @@ var require_worker = __commonJS({
         if (composer && typeof composer.close === "function") composer.close();
       }
     }
-    async function changeFlags(credentials, action, deps, seen) {
+    async function changeFlags(credentials, action, deps, seen, execution) {
       const folder = action.folder || "INBOX";
       return withImap(credentials, deps, (client) => withMailbox(client, folder, async () => {
         const existing = await client.fetchOne(
@@ -66447,8 +66513,10 @@ var require_worker = __commonJS({
         if (!existing) throw new Error("MESSAGE_NOT_FOUND");
         const currentFlags = flagsArray(existing.flags);
         if (currentFlags.includes("\\Seen") !== seen) {
+          execution.state = "unknown";
           const updated = seen ? await client.messageFlagsAdd(action.message_uid, ["\\Seen"], { uid: true }) : await client.messageFlagsRemove(action.message_uid, ["\\Seen"], { uid: true });
           if (!updated) throw new Error("MESSAGE_NOT_FOUND");
+          execution.state = "executed";
           const verified = await client.fetchOne(
             action.message_uid,
             { uid: true, flags: true },
@@ -66462,7 +66530,7 @@ var require_worker = __commonJS({
         return { updated: true, folder, uid: action.message_uid, unread: !seen };
       }));
     }
-    async function moveMessage(credentials, action, deps) {
+    async function moveMessage(credentials, action, deps, execution) {
       const folder = action.folder || "INBOX";
       const target = typeof action.target_folder === "string" ? action.target_folder.trim() : "";
       if (!target) throw new Error("TARGET_FOLDER_REQUIRED");
@@ -66474,8 +66542,10 @@ var require_worker = __commonJS({
           { uid: true }
         );
         if (!existing) throw new Error("MESSAGE_NOT_FOUND");
+        execution.state = "unknown";
         const moved = await client.messageMove(action.message_uid, target, { uid: true });
         if (!moved) throw new Error("MESSAGE_NOT_FOUND");
+        execution.state = "executed";
         const destinationUid = moved.uidMap && moved.uidMap.get ? moved.uidMap.get(action.message_uid) || null : null;
         if (!destinationUid) throw new Error("MESSAGE_MOVE_UNCONFIRMED");
         return {
@@ -66502,7 +66572,7 @@ var require_worker = __commonJS({
         smtp: `${QQ.smtpHost}:${QQ.smtpPort}`
       };
     }
-    async function performAction(credentials, action, deps) {
+    async function performAction(credentials, action, deps, execution = { state: "not_executed" }) {
       switch (action.action) {
         case "list_folders":
           return listFolders(credentials, deps);
@@ -66511,15 +66581,15 @@ var require_worker = __commonJS({
         case "read":
           return readMessage(credentials, action, deps);
         case "send":
-          return sendMessage(credentials, action, deps);
+          return sendMessage(credentials, action, deps, execution);
         case "draft":
-          return saveDraft(credentials, action, deps);
+          return saveDraft(credentials, action, deps, execution);
         case "mark_read":
-          return changeFlags(credentials, action, deps, true);
+          return changeFlags(credentials, action, deps, true, execution);
         case "mark_unread":
-          return changeFlags(credentials, action, deps, false);
+          return changeFlags(credentials, action, deps, false, execution);
         case "move":
-          return moveMessage(credentials, action, deps);
+          return moveMessage(credentials, action, deps, execution);
         default:
           throw new Error("UNKNOWN_ACTION");
       }
@@ -66528,6 +66598,9 @@ var require_worker = __commonJS({
       const code = error && error.code ? String(error.code) : "";
       const message = error && error.message ? String(error.message) : String(error || "");
       const combined = `${code} ${message}`.toLowerCase();
+      if (message === "INVALID_ATTACHMENT_PATHS") return "\u9644\u4EF6\u987B\u4F7F\u7528\u672C\u673A\u6587\u4EF6\u7EDD\u5BF9\u8DEF\u5F84\u5217\u8868\uFF0C\u6BCF\u5C01\u6700\u591A 10 \u4E2A\u6587\u4EF6";
+      if (message === "ATTACHMENT_UNREADABLE" || message === "ATTACHMENT_NOT_FILE") return "\u9644\u4EF6\u4E0D\u5B58\u5728\u3001\u65E0\u6CD5\u8BFB\u53D6\u6216\u4E0D\u662F\u666E\u901A\u6587\u4EF6\uFF1B\u90AE\u4EF6\u672A\u53D1\u9001\uFF0C\u8BF7\u68C0\u67E5\u6587\u4EF6\u8DEF\u5F84";
+      if (message === "ATTACHMENTS_TOO_LARGE") return "\u9644\u4EF6\u603B\u5927\u5C0F\u8D85\u8FC7 32 MiB\uFF1B\u90AE\u4EF6\u672A\u53D1\u9001\uFF0C\u8BF7\u7F29\u5C0F\u9644\u4EF6\u540E\u91CD\u8BD5";
       if (message === "INVALID_EMAIL") return "\u8BF7\u8F93\u5165\u6709\u6548\u7684 QQ \u90AE\u7BB1\u5730\u5740";
       if (message === "INVALID_AUTHORIZATION_CODE") {
         return "\u8BF7\u8F93\u5165 QQ \u90AE\u7BB1\u751F\u6210\u7684 IMAP/SMTP \u6388\u6743\u7801\uFF0C\u4E0D\u8981\u8F93\u5165 QQ \u5BC6\u7801";
@@ -66545,7 +66618,8 @@ var require_worker = __commonJS({
         return "QQ \u90AE\u7BB1\u6682\u65F6\u9650\u5236\u4E86\u9891\u7E41\u8BBF\u95EE\uFF0C\u8BF7\u7A0D\u540E\u518D\u8BD5";
       }
       if (message === "MESSAGE_NOT_FOUND") return "\u6CA1\u6709\u5728\u6307\u5B9A\u6587\u4EF6\u5939\u627E\u5230\u8FD9\u5C01\u90AE\u4EF6\uFF0C\u8BF7\u91CD\u65B0\u641C\u7D22";
-      if (message === "MESSAGE_TOO_LARGE") return "\u90AE\u4EF6\u5185\u5BB9\u8FC7\u5927\uFF0C\u5F53\u524D\u7248\u672C\u6682\u65F6\u65E0\u6CD5\u5904\u7406";
+      if (message === "MESSAGE_TOO_LARGE") return "\u90AE\u4EF6\u5185\u5BB9\u8FC7\u5927\uFF1B\u53D1\u9001\u6216\u4FDD\u5B58\u8349\u7A3F\u65F6\u8BF7\u5C06\u4E3B\u9898\u7F29\u77ED\u81F3 998 \u5B57\u7B26\u4EE5\u5185\u3001\u6B63\u6587\u7F29\u77ED\u81F3 500000 \u5B57\u7B26\u4EE5\u5185\uFF1B\u8BFB\u53D6\u90AE\u4EF6\u4E0A\u9650\u4E3A 48 MiB";
+      if (message === "DRAFT_BUILD_FAILED") return "\u8349\u7A3F\u5185\u5BB9\u751F\u6210\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u90AE\u4EF6\u5185\u5BB9\u540E\u518D\u4FDD\u5B58";
       if (message === "DRAFT_FOLDER_NOT_FOUND") {
         return "\u6CA1\u6709\u627E\u5230 QQ \u90AE\u7BB1\u8349\u7A3F\u7BB1\uFF0C\u8BF7\u5148\u8C03\u7528 list_folders \u786E\u8BA4\u670D\u52A1\u5668\u6587\u4EF6\u5939";
       }
@@ -66570,6 +66644,7 @@ var require_worker = __commonJS({
       if (!request || typeof request !== "object") throw new Error("INVALID_REQUEST");
       const params = request.params && typeof request.params === "object" ? request.params : {};
       let credentials = null;
+      const execution = { state: "not_executed" };
       try {
         if (request.method === "account/connect") {
           credentials = consumeRequestCredentials(request);
@@ -66579,11 +66654,16 @@ var require_worker = __commonJS({
         if (request.method === "mail/action") {
           credentials = consumeRequestCredentials(request);
           const action = params.action && typeof params.action === "object" ? params.action : {};
-          return await performAction(credentials, action, deps);
+          return await performAction(credentials, action, deps, execution);
         }
         throw new Error("METHOD_NOT_FOUND");
       } catch (error) {
-        throw new Error(humanizeError(error));
+        const action = params.action && params.action.action;
+        const mutation = request.method === "mail/action" && ["send", "draft", "move", "mark_read", "mark_unread"].includes(action);
+        const state = mutation ? execution.state : void 0;
+        const failure = new Error(state === "unknown" ? "\u64CD\u4F5C\u7ED3\u679C\u4E0D\u786E\u5B9A\uFF0C\u8BF7\u5148\u6838\u5BF9\u6536\u4EF6\u7BB1\u3001\u5DF2\u53D1\u9001\u3001\u8349\u7A3F\u6216\u76EE\u6807\u6587\u4EF6\u5939\u7684\u5B9E\u9645\u72B6\u6001\uFF0C\u907F\u514D\u91CD\u590D\u64CD\u4F5C" : state === "executed" ? "\u64CD\u4F5C\u5DF2\u6267\u884C\uFF0C\u4F46\u540E\u7EED\u786E\u8BA4\u6216\u6E05\u7406\u5931\u8D25\uFF1B\u8BF7\u5148\u6838\u5BF9\u90AE\u7BB1\u5B9E\u9645\u72B6\u6001\uFF0C\u907F\u514D\u91CD\u590D\u64CD\u4F5C" : (state === "not_executed" ? "\u64CD\u4F5C\u672A\u6267\u884C\uFF1A" : "") + humanizeError(error));
+        failure.executionState = state;
+        throw failure;
       } finally {
         if (credentials) credentials.authorizationCode = "";
       }
@@ -66613,7 +66693,8 @@ var require_worker = __commonJS({
             id: request.id,
             error: {
               code: -32e3,
-              message: error && error.message ? error.message : "QQ \u90AE\u7BB1\u64CD\u4F5C\u5931\u8D25"
+              message: error && error.message ? error.message : "QQ \u90AE\u7BB1\u64CD\u4F5C\u5931\u8D25",
+              ...error && error.executionState ? { data: { execution_state: error.executionState } } : {}
             }
           });
         });

@@ -144,6 +144,7 @@ test('manifest 声明 Cindy 持久凭证及其最小 Node 注入范围', () => {
   assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
   assert.equal(manifest.schemaVersion, 3);
   assert.equal(Object.hasOwn(manifest, 'slots'), false);
+  assert.equal(manifest.minCindyVersion, '0.1.92');
   assert.equal(manifest.settingsHtml, 'settings.html');
   assert.equal(
     Object.hasOwn(manifest, 'settingsHeight'),
@@ -440,8 +441,8 @@ test('Worker 仅在服务器返回目标 UID 映射时报告移动成功', async
   assert.equal(moveCalls, 3);
 });
 
-test('Worker 分块读取邮件，并在解析前拒绝超过 12 MiB 的内容', async () => {
-  const maxSourceBytes = 12 * 1024 * 1024;
+test('Worker 分块读取邮件，并在解析前拒绝超过 48 MiB 的内容', async () => {
+  const maxSourceBytes = 48 * 1024 * 1024;
   let parseCalls = 0;
   const harness = createWorkerHarness({
     async fetchOne(_uid, query) {
@@ -484,3 +485,6 @@ test('Worker 将认证、网络与频控错误转换成可行动文案', () => {
   assert.match(worker.humanizeError(new Error('Too many simultaneous connections')), /稍后/);
   assert.match(worker.humanizeError(new Error('MESSAGE_MOVE_UNCONFIRMED')), /重新搜索/);
 });
+
+// Run the attachment boundary/MIME regressions in the official per-plugin CI job.
+import '../qq-mail/tests/attachments.test.cjs';
