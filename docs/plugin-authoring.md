@@ -88,7 +88,7 @@ existing capabilities, not a requirement to add capabilities the plugin never ha
 
 Boolean capabilities must be literal `true` when present; omit unused ones rather
 than setting `false` or `null`. Keep independent fields such as `manual`, `setup`,
-`locales`, `settingsHtml`, `command`, and `keywords`; their absence from `slots`
+`locales`, `settingsHtml`, `showTaskPreferences`, `command`, and `keywords`; their absence from `slots`
 does not make them disposable. A format-only migration does not change tool
 behavior or execution paths. Historical empty slot names without declarations
 should not be filled with new permissions; inspect their actual usage. Do not
@@ -104,6 +104,28 @@ The validator preserves unknown v3 top-level fields. Preservation neither grants
 permission nor proves Host implementation. Business functionality built on
 existing network, file, or Node interfaces does not require client-side business
 registration. An invented field or method cannot create an unimplemented Host API.
+
+## Host default settings card
+
+The top-level `showTaskPreferences` field is an optional boolean display setting,
+not a presence-only capability. Both `true` and `false` are valid in v2 and v3.
+Omitting it or setting it to `true` keeps the existing capability-based visibility
+of Cindy's **Model and tasks** card. A plugin providing its own settings UI can declare:
+
+```json
+{ "showTaskPreferences": false }
+```
+
+Supporting clients hide the Host's default card on Desktop and mobile. This field
+only controls visibility; task APIs, model precedence, saved defaults, permission
+checks, and installation confirmation keep their existing behavior.
+Plugins can still select models through the existing `tasks.models`, explicit
+creation `route`, and `tasks.setModel` interfaces; check `tasks.capabilities`
+before using incremental operations.
+
+Older clients that do not recognize the field still show the original card.
+Establish stable/Beta release evidence before relying on the hidden card or setting
+`minCindyVersion`; do not infer a supporting version from a merged PR.
 
 ## Version and installation facts
 

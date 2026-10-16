@@ -69,7 +69,7 @@ subscribe）、Cindy 类目/动作与订阅 topics/hooks；旧 v2 slot 名称也
 | `ios-simulator` | `iosSimulator: true` | Host 内嵌模拟器入口；已有 Skill 等声明同时保留 |
 
 布尔能力出现时必须为 `true`，不用时省略，不能写 `false` 或 `null`。
-`manual`、`setup`、`locales`、`settingsHtml`、`command`、`keywords` 等独立字段继续保留；
+`manual`、`setup`、`locales`、`settingsHtml`、`showTaskPreferences`、`command`、`keywords` 等独立字段继续保留；
 不能因为它们不在 `slots` 中就删除。只做格式迁移时，不应改动工具行为或源码执行路径。
 旧清单中只有名字、没有详单的历史空声明不应被补成新增权限；结合实际代码判断。
 不认识的声明不能凭名称猜测映射或静默删除，应依据目标 Host 的真实契约确认。
@@ -81,6 +81,24 @@ subscribe）、Cindy 类目/动作与订阅 topics/hooks；旧 v2 slot 名称也
 未知 v3 顶层字段会由校验器保留；这既不等于自动授权，也不证明 Host 已实现该能力。
 新业务若能由现有网络、文件或 Node 接口完成，无需客户端增加具体业务能力注册。
 真正没有 Host 实现的接口，不能通过自造字段或方法名获得。
+
+## 宿主默认配置卡
+
+顶层 `showTaskPreferences` 是可选的布尔显示字段，不是只能以 `true` 声明的能力。
+v2 和 v3 均接受 `true`、`false`；省略或设为 `true` 时按原有能力条件显示 Cindy
+「模型与任务」卡。插件提供自己的配置界面时，可声明：
+
+```json
+{ "showTaskPreferences": false }
+```
+
+支持该字段的客户端会隐藏 Desktop 和手机上的宿主默认配置卡。此字段仅控制显示；
+任务 API、模型优先级、已有默认配置、权限检查和安装确认均保持原样。
+插件仍可通过已有 `tasks.models`、创建时显式 `route` 和 `tasks.setModel` 管理模型，
+使用增量接口前检查 `tasks.capabilities`。
+
+旧客户端不识别该字段时仍显示原卡片。依赖隐藏效果或填写 `minCindyVersion` 前，
+应取得正式稳定版或 Beta 的发布证据，不能从 PR 已合入推断支持版本。
 
 ## 版本与安装事实
 

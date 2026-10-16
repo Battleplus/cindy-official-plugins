@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { validateGhostManifest } from './contracts/plugin-manifest.20ab276de16e.mjs';
+import { validateGhostManifest } from './contracts/plugin-manifest.8f84016fdcd9.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 
@@ -526,6 +526,32 @@ test('the pinned Cindy manifest contract rejects invalid manifest shapes', () =>
     /released stable Cindy version/,
     'official releases must not use the versionless development sentinel',
   );
+});
+
+test('showTaskPreferences is an optional card visibility flag in both manifest formats', () => {
+  for (const schemaVersion of [2, 3]) {
+    const base = { schemaVersion, id: 'task-preferences-fixture', name: 'Task preferences',
+      version: '1.0.0', entry: 'main.js', description: 'Fixture', whenToUse: 'Fixture',
+      ...(schemaVersion === 2 ? { slots: ['tool'] } : { minCindyVersion: '0.1.0' }),
+      tools: [{ name: 'run', description: 'Run the fixture' }] };
+    const omitted = validateGhostManifest(base);
+    assert.equal(omitted.ok, true);
+    assert.equal(Object.hasOwn(omitted.manifest, 'showTaskPreferences'), false,
+      'omission must not insert a new field into existing normalized manifests');
+    for (const showTaskPreferences of [true, false]) {
+      const manifest = { ...base, showTaskPreferences };
+      assert.doesNotThrow(() => validateOfficialManifest('task-preferences-fixture', manifest));
+      const result = validateGhostManifest(manifest);
+      assert.equal(result.ok, true);
+      assert.equal(result.manifest.showTaskPreferences, showTaskPreferences);
+      assert.deepEqual(validateGhostManifest(result.manifest), result,
+        'repeated normalization must retain the explicit policy');
+    }
+    for (const showTaskPreferences of [null, 'false', 0, {}, []]) {
+      assert.equal(validateGhostManifest({ ...base, showTaskPreferences }).ok, false,
+        `invalid showTaskPreferences: ${JSON.stringify(showTaskPreferences)}`);
+    }
+  }
 });
 
 test('repository admission does not depend on the current Host capability catalog', () => {
