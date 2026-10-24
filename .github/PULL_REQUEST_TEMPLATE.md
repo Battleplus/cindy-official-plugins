@@ -37,6 +37,24 @@ if it was not. Changed behavior still needs its applicable runtime verification.
 Review contract: .greptile/rules.md → 运行验证与证据复用
 -->
 
+## Third-party OAuth scopes / 第三方 OAuth 授权范围
+
+<!-- Tick one. Besides scopes this plugin requests, include any Cindy host
+authorization it uses or depends on. Name that grant, whether the platform has
+approved it, and whether a host release contains it. If the grant changed or
+is not ready, do not merge. Plan scopes that still need requesting together;
+do not request unused ones.
+勾一项。除插件自己申请的 scope 外，写上它用到或依赖的 Cindy 本体授权：哪一项、
+平台是否已批准、宿主是否已发布。本体授权有变化或未就绪先不合。需要申请的范围
+一起规划，用不上的不要申请。 -->
+
+- [ ] No change to scopes this plugin requests, and it does not use or depend on
+      a changed or unready Cindy host authorization.
+      插件自己申请的 scope 无变化，也不依赖有变化或未就绪的 Cindy 本体授权。
+- [ ] Applies. Scopes this plugin requests, plus each host grant, platform
+      approval, and host release:
+      有。插件自己的 scope，以及每项本体授权、平台是否已批准、宿主是否已发布：
+
 ## Decisions, if applicable / 相关决定（适用时）
 
 <!-- For a new plugin or an audience change, state which tier applies:

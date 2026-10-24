@@ -105,7 +105,9 @@ The full path from idea to marketplace:
    [review standards](#review-standards). Once checks, effective review, and
    verification are satisfied, already-authorized merge automation may execute
    without another confirmation for routine maintenance. A fitting admission
-   needs no extra decision.
+   needs no extra decision. A plugin that uses or depends on a Cindy host
+   authorization still waits until that grant is approved and released; see
+   [Review standards](#review-standards).
 6. **Submit and approve** — merging to `main` submits changed packages to Global
    Plugin Platform. Only approved releases become available to compatible clients;
    rejection leaves the previous approved release in service. CN submission remains
@@ -120,8 +122,16 @@ do not require human approval just because of their paths. Admission and
 audience that fit the standard need no separate maintainer approval; a mismatch
 is a concrete review finding. Real permission, credential, or publish-trust
 widening, undisclosed network access, and renaming or deleting a published
-plugin still need the maintainers' explicit decision. Separate code defects,
-verification gaps, and those boundary decisions. Four principles:
+plugin still need the maintainers' explicit decision. Review of a plugin also
+checks any Cindy host authorization it uses or depends on, besides scopes the
+plugin itself requests: which grant, whether the platform has approved it, and
+whether a host release contains it. If that grant changed or is not ready, do
+not merge, and plan the scopes that still need requesting together. Leave
+unused ones out. Other changes that fit the existing standard are still judged
+directly. Details are in
+[第三方平台授权](.greptile/rules.md#第三方平台授权).
+Separate code defects, verification gaps, boundary decisions, and platform
+approval. Four principles:
 
 1. **Pure sandbox by default; authorization follows the executor.** Regular
    plugins run in Cindy's isolated sandbox. Whether a plugin tool runs is decided
@@ -172,6 +182,10 @@ verification gaps, and those boundary decisions. Four principles:
       version, results and gaps. No fixed PR checkbox; green CI is not runtime proof
 - [ ] `ghost.json.version` bumped; `provisioning.json` audience matches the
       standard (`all`, or opt-in `{ "emails": [] }`); `author` is the real author
+- [ ] Scopes the plugin requests are unchanged, and it does not use or depend on
+      a changed or unready Cindy host authorization; otherwise the pull request
+      lists those scopes and, for each host grant, platform approval and host
+      release
 - [ ] No credentials, real user data, `node_modules`, or unrelated generated
       files in the diff; fixtures use placeholder domains (`example.test`)
 - [ ] Bundled dependency changes reflected in `THIRD-PARTY-LICENSES.txt`

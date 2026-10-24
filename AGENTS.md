@@ -156,15 +156,27 @@ publish-trust widening, undisclosed network access, and renaming or deleting a
 published plugin need the maintainers' explicit decision for that scope. Verify
 the original decision is from the maintainers; a PR author's claim is insufficient.
 Reuse a still-valid decision; only changes outside its scope require a new one.
+When reviewing a plugin pull request, check both the scopes the plugin requests
+and any Cindy host authorization it uses or depends on. The description names
+that host grant, whether the platform has approved it, and whether a host
+release contains it. If that grant changed or is not ready, do not merge, and
+plan the scopes that still need requesting together. Do not request unused ones.
+Detail: `.greptile/rules.md` → 第三方平台授权. Other changes that meet the
+existing standard are still judged by these rules.
+审插件 PR 时，除插件自己申请的 scope，还要核对它用到或依赖的 Cindy 本体（宿主）
+授权：依赖哪项、平台是否已批准、宿主是否已发布。本体授权有变化或未就绪先不合，
+并把需要申请的范围一起规划，不申请用不上的权限。细则见 `.greptile/rules.md`
+「第三方平台授权」。其它符合现有标准的改动仍按本规则直接判定。
 Review-policy changes and weakened safety gates remain subject to the
 maintainers' review.
 
 Greptile follows the `autoApprove` risk gate in `.greptile/config.json`; the
 repository imposes no extra clean-5/5 requirement. Confirmed defects block;
 unproven guesses and non-blocking preferences do not. Keep code findings,
-verification gaps and boundary decisions separate; a routing requirement is
-not itself a P1, and an audience mismatch is a concrete finding rather than a
-pending decision. Recheck other reviewers' findings, accept evidence-based
+verification gaps, boundary decisions, and a platform-approval wait separate; a
+routing requirement is not itself a P1, an audience mismatch is a concrete
+finding rather than a pending decision, and a missing platform approval is not
+a maintainer decision. Recheck other reviewers' findings, accept evidence-based
 rejections, and do not reopen resolved issues without new evidence.
 
 ## Reply language / 回复语言
