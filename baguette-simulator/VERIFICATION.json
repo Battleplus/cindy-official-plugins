@@ -1,10 +1,11 @@
 {
   "date": "2026-10-24",
-  "pluginVersion": "0.2.21",
+  "pluginVersion": "0.2.22",
   "baguette": "0.2.10",
-  "status": "input-platform-descriptions-aligned-source-verified",
-  "baseCommit": "e13abcd2caad2f83a66ed7b1716312ed4145eae8",
+  "status": "duo-posture-glyphs-and-turn-verified-package-acceptance-pending",
+  "baseCommit": "669ec2f3b4f55564093c1c7102a496ef370a0a7c",
   "passed": [
+    "0.2.22: iPhone Duo posture glyphs redrawn after Xcode 27 Device Hub's own Duo toolbar set (cover with hinge edge, camera and Home indicator; half-open book; unfolded panel) and turned with the book; rotation animates the 3D book with the iPhone chrome curve (0.32s) and crossfades to the live stream. Real browser on a throwaway Xcode 27.1 iPhone Duo: rotate right turns the cover clockwise, the book rolls in place with unchanged size and centre, glyphs follow in closed/open/flat, light and dark; reduced motion turns at once. Folding or unfolding keeps the turn: a turned cover unfolds into a turned book with page and guest orientation in agreement (previously reset upright while the guest stayed turned); taps open Safari on the turned unfolded panel and Settings on the turned cover after folding back. Rotation while unfolded writes the device hold (panel orientation one step back): page and guest agree through a full turn each way; reopening the viewer on a turned unfolded book starts at the guest orientation from /hinge. Simulator suites 508/508 pass.",
     "Rebased onto main e13abcd (#199). TV/Vision native helpers, platform-stage, vision-stage, spatial and trackpad implementation files are byte-identical to main. Android review fixes retained.",
     "79 targeted controller/model/core/create-sheet/manifest/localization checks passed. Cross-platform tests cover iOS/Android handheld routing, Home, both rotation buttons and modified-arrow shortcuts versus TV/Vision, plus English/Chinese creation sheets with exact per-platform runtimes.",
     "Full repository gate including binary dependencies: 385/388 passed. The same three Bash 3 bad-substitution failures reproduced on clean new main e13abcd (publishing tests 11/14). No unrelated workflow edits.",
@@ -28,6 +29,7 @@
     "0.2.21 full repository gate including binary dependencies: 607/610 passed; only the same three Bash 3 baseline publishing failures on unchanged main e13abcd. Final manifest/localization 27/27; runtime source unchanged from 0.2.20."
   ],
   "notVerified": [
+    "Final 0.2.22 .cindy installation and embedded preview on stable/Beta Cindy are pending (Duo posture glyphs, turn animation and fold orientation were verified only on a local personal-client build).",
     "No fresh 0.2.21 packaged Beta test is claimed. Dash reconfirmed prior 0.2.14 Beta acceptance on 2026-10-24 and does not require repeated acceptance requests; maintainers assess the recorded version boundary and technical checks.",
     "No other iOS/tvOS/visionOS device was started or stopped for this integration. Upstream real-device evidence remains recorded separately.",
     "Android Windows/Linux physical-host acceptance remains pending."
