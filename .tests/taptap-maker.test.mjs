@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { EventEmitter, once } from 'node:events';
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,6 +14,7 @@ import { createContext, Script } from 'node:vm';
 
 import adapter from '../taptap-maker/node/child-process-adapter.cjs';
 import rootRouterModule from '../taptap-maker/node/mcp-root-router.cjs';
+import validationModule from '../taptap-maker/node/local-validation.cjs';
 
 const pluginRoot = new URL('../taptap-maker/', import.meta.url);
 const mainSource = readFileSync(new URL('main.js', pluginRoot), 'utf8');
@@ -58,7 +60,11 @@ class FakeBroadcastChannel {
   }
 }
 
-function createMainHarness(nodeResponder, readPreferences = async () => ({ ok: true, json: async () => ({}) })) {
+function createMainHarness(
+  nodeResponder,
+  readPreferences = async () => ({ ok: true, json: async () => ({}) }),
+  previewResponder = async () => ({ ok: true }),
+) {
   FakeBroadcastChannel.instances.length = 0;
   const nodeRequests = [];
   const previewRequests = [];
@@ -76,7 +82,7 @@ function createMainHarness(nodeResponder, readPreferences = async () => ({ ok: t
     },
     preview: async (request) => {
       previewRequests.push(request);
-      return { ok: true };
+      return previewResponder(request);
     },
     pick: async (request) => {
       pickRequests.push(request);
@@ -101,7 +107,9 @@ function createMainHarness(nodeResponder, readPreferences = async () => ({ ok: t
       URL,
       cindy,
       fetch: readPreferences,
-      setTimeout: () => 1,
+      AbortController,
+      setTimeout: (callback, delay) => delay === 2000 ? setTimeout(callback, delay) : 1,
+      clearTimeout,
     }),
   );
   assert.equal(typeof handler, 'function');
@@ -257,7 +265,7 @@ function imageSettingsHarness(readPreferences, writePreferences = async () => ({
   const elements = new Map();
   function element(id) {
     if (!elements.has(id)) elements.set(id, {
-      disabled: ['maker-image-enabled', 'maker-video-enabled', 'maker-audio-enabled'].includes(id),
+      disabled: ['maker-preview-enabled', 'maker-image-enabled', 'maker-video-enabled', 'maker-audio-enabled'].includes(id),
       checked: false, value: '', textContent: '',
       listeners: {},
       addEventListener(event, listener) { this.listeners[event] = listener; },
@@ -285,7 +293,8 @@ function imageSettingsHarness(readPreferences, writePreferences = async () => ({
   new Script(settingsSource).runInContext(context);
   return {
     toggle: element('maker-image-enabled'), video: element('maker-video-enabled'),
-    audio: element('maker-audio-enabled'), message: element('media-message'),
+    audio: element('maker-audio-enabled'), preview: element('maker-preview-enabled'),
+    message: element('media-message'),
   };
 }
 
@@ -442,6 +451,63 @@ test('设置加载期间禁用，默认开启；点击保存保留其它偏好�
   assert.equal(reopened.toggle.disabled, false);
 });
 
+test('预览开关默认开启，保存只更新自己的键并保留其它偏好', async () => {
+  assert.match(settingsHtml, /id="maker-preview-enabled" type="checkbox" role="switch" disabled/);
+  let preferences = { makerImageEnabled: false, unrelated: 'preserve' };
+  const read = async () => ({ ok: true, json: async () => ({ ...preferences }) });
+  const harness = imageSettingsHarness(read, async (next) => {
+    preferences = next;
+    return { ok: true };
+  });
+  assert.equal(harness.preview.disabled, true);
+  await new Promise(setImmediate);
+  assert.equal(harness.preview.checked, true);
+  assert.equal(harness.preview.disabled, false);
+  harness.preview.checked = false;
+  await harness.preview.listeners.change();
+  assert.deepEqual(preferences, { makerImageEnabled: false, unrelated: 'preserve', makerPreviewEnabled: false });
+  assert.equal(harness.message.textContent, '已保存');
+  const reopened = imageSettingsHarness(read);
+  await new Promise(setImmediate);
+  assert.equal(reopened.preview.checked, false);
+  assert.equal(reopened.preview.disabled, false);
+  assert.equal(reopened.toggle.checked, false);
+  assert.equal(reopened.video.checked, true);
+});
+
+test('预览开关保存失败恢复原显示并要求重新核对', async () => {
+  const harness = imageSettingsHarness(
+    async () => ({ ok: true, json: async () => ({}) }), async () => ({ ok: false }),
+  );
+  await new Promise(setImmediate);
+  harness.preview.checked = false;
+  await harness.preview.listeners.change();
+  assert.equal(harness.preview.checked, true);
+  assert.equal(harness.preview.disabled, true);
+  assert.match(harness.message.textContent, /未能确认保存结果/);
+});
+
+test('预览开关的设置页文案和工具说明覆盖四种语言', () => {
+  const messages = readSettingsMessages();
+  for (const locale of ['en', 'zh-CN', 'ja', 'ko']) {
+    assert.ok(messages[locale].previewEnabled, `${locale} previewEnabled`);
+    assert.ok(messages[locale].previewHint, `${locale} previewHint`);
+  }
+  const buildDescription = (source) => source.tools.find((tool) => tool.name === 'maker_build').description;
+  assert.match(buildDescription(manifest), /设置中关闭/);
+  const disabledHints = {
+    en: /turns this off in plugin settings/,
+    'zh-CN': /设置中关闭/,
+    ja: /設定でオフ/,
+    ko: /설정에서 끄면/,
+  };
+  for (const [locale, hint] of Object.entries(disabledHints)) {
+    const localized = JSON.parse(readFileSync(new URL(`locales/${locale}.json`, pluginRoot), 'utf8'));
+    assert.match(localized.tools.maker_build.description, hint, `${locale} maker_build description`);
+  }
+  assert.match(manualMd, /preview\.skipped/);
+});
+
 test('设置加载失败保持禁用；保存失败不显示已保存并要求核对', async () => {
   const failed = imageSettingsHarness(async () => ({ ok: false }));
   await new Promise(setImmediate);
@@ -475,13 +541,14 @@ function fakeChildHandle() {
   };
 }
 
-function loadAccountInternals() {
+function loadAccountInternals(nodeApi) {
   const readline = {
     createInterface() {
       return { on() {} };
     },
   };
   const context = createContext({
+    __CINDY_NODE__: nodeApi,
     Buffer,
     clearInterval,
     clearTimeout,
@@ -495,16 +562,64 @@ function loadAccountInternals() {
     setTimeout,
   });
   new Script(
-    `${accountSource}\nglobalThis.__accountInternals = { ensureTargetAvailable, projectDirectoryName, projectSyncFailure };`,
+    `${accountSource}\nglobalThis.__accountInternals = { ensureTargetAvailable, projectDirectoryName, projectSyncFailure, runMaker, parseJsonOutput };`,
     { filename: 'taptap-maker/node/account.cjs' },
   ).runInContext(context);
   return context.__accountInternals;
 }
 
+test('large validation reports retain archive evidence without exceeding the Host RPC line limit', async t => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'cindy-validation-report-')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  childProcess.execFileSync('git', ['init', '-q', root]);
+  await writeFile(path.join(root, '.gitignore'), '.maker/validation-evidence/\n');
+  const archive = path.join(root, '.maker/validation-evidence/test-run');
+  await mkdir(archive, { recursive: true });
+  const report = { result: 'FAIL', test_result: 'FAILED', frames_completed: 60,
+    summary: { lua_errors: 1, resource_errors: 0, engine_errors: 0, total_errors: 1 },
+    errors: ['x'.repeat(3 * 1024 * 1024)] };
+  const original = { ok: true, result: 'COMPLETED', report, archive_directory: archive };
+  await writeFile(path.join(archive, 'result.json'), JSON.stringify(original));
+  await writeFile(path.join(archive, 'validate.json'), JSON.stringify(report));
+  const { runMaker, parseJsonOutput } = loadAccountInternals({
+    async spawnEntry(entry, args) {
+      assert.equal(entry, 'node/maker-child.cjs');
+      const child = fakeChildHandle();
+      setImmediate(() => child.stdout.write(JSON.stringify(args[1] === 'status'
+        ? { protocol_version: 1, ok: true, state: 'stopped', process_alive: false } : original)));
+      return child;
+    },
+  });
+  const result = await validationModule.runLocalValidation({ workdir: root }, runMaker, parseJsonOutput);
+  assert.equal(result.execution_state, 'executed');
+  assert.equal(result.validation.result, 'COMPLETED');
+  assert.equal(result.validation.report.result, 'FAIL');
+  assert.equal(result.validation.report.test_result, 'FAILED');
+  assert.deepEqual(result.validation.report.summary, report.summary);
+  assert.equal(result.validation.summary_only, true);
+  assert.equal(result.full_result_file, '.maker/validation-evidence/test-run/result.json');
+  assert.deepEqual(JSON.parse(readFileSync(path.join(root, result.full_result_file), 'utf8')), original);
+  const rpc = { jsonrpc: '2.0', id: 1, result: {
+    content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result,
+  } };
+  assert.ok(Buffer.byteLength(JSON.stringify(rpc)) < 1024 * 1024);
+});
+
+test('account commands retain their existing output limit', async () => {
+  const { runMaker } = loadAccountInternals({
+    async spawnEntry() {
+      const child = fakeChildHandle();
+      setImmediate(() => child.stdout.write('x'.repeat(2 * 1024 * 1024 + 1)));
+      return child;
+    },
+  });
+  await assert.rejects(runMaker(['apps', '--json']), /stdout 输出超限/);
+});
+
 test('manifest、手动安装策略和官方 Runtime 版本保持一致', () => {
   assert.equal(manifest.id, 'taptap-maker');
   assert.equal(manifest.author, 'Cindy');
-  assert.equal(manifest.version, '2.1.15');
+  assert.equal(manifest.version, '2.1.24');
   assert.equal(manifest.minCindyVersion, '0.1.64');
   assert.match(
     manifest.tools.find((tool) => tool.name === 'maker_build').description,
@@ -551,7 +666,7 @@ test('manifest、手动安装策略和官方 Runtime 版本保持一致', () => 
   assert.match(consoleTool.description, /不自动构建、提交或安装游戏运行环境/);
   assert.deepEqual(provisioning.ghosts['taptap-maker'], { audience: { emails: [] } });
   assert.equal(vendorPackage.name, '@taptap/maker');
-  assert.equal(vendorPackage.version, '0.0.34');
+  assert.equal(vendorPackage.version, '0.0.37');
   assert.match(makerMcpSource, /TAPTAP_MAKER_DISTRIBUTION = 'cindy_plugin'/);
   assert.match(makerChildSource, /TAPTAP_MAKER_DISTRIBUTION = 'cindy_plugin'/);
   const statusTool = manifest.tools.find((tool) => tool.name === 'maker_status');
@@ -618,6 +733,30 @@ test('manifest、手动安装策略和官方 Runtime 版本保持一致', () => 
   );
 });
 
+test('maker_validate uses only the trusted current workspace and fixed action', async () => {
+  const harness = createMainHarness(async () => ({ ok: true, result: { structuredContent: {
+    ok: true, execution_state: 'executed', validation: { result: 'COMPLETED', report: { result: 'FAIL' } },
+  } } }));
+  const result = await harness.call('maker_validate', { frames: 60, action: 'init', workdir: '/other',
+    session_context: imageSessionContext });
+  assert.equal(result.result.validation.report.result, 'FAIL');
+  const request = harness.nodeRequests[0];
+  assert.equal(request.entry, 'node/account.cjs');
+  assert.equal(request.params.arguments.action, 'local_validate');
+  assert.equal(request.params.arguments.workdir, imageSessionContext.workdir);
+  assert.equal(request.params.arguments.frames, 60);
+});
+
+test('maker_validate refuses readonly sessions before spawning a worker', async () => {
+  const harness = createMainHarness(async () => { throw new Error('must not dispatch'); });
+  const result = await harness.call('maker_validate', {
+    session_context: { ...imageSessionContext, workdir_is_read_only: true },
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /只读/);
+  assert.equal(harness.nodeRequests.length, 0);
+});
+
 test('官方 Runtime 保留远端错误结果的 executed 执行态', () => {
   const functionSource = vendorMakerSource.match(
     /function normalizeRemoteProxyExecutionState\(value\) \{[\s\S]*?\n\}/,
@@ -631,7 +770,8 @@ test('官方 Runtime 保留远端错误结果的 executed 执行态', () => {
 });
 
 test('Runtime 错误包装保留执行三态并禁止自动重试', () => {
-  const names = ['normalizeRemoteProxyExecutionState', 'addRemoteProxyErrorExecutionState'];
+  const names = ['normalizeRemoteProxyExecutionState', 'getRemoteProxyExecutionState',
+    'isTextContent', 'parseJsonObject', 'addRemoteProxyErrorExecutionState'];
   const functions = names.map((name) => {
     const match = vendorMakerSource.match(new RegExp('function ' + name + '\\([^]*?\n\\}'));
     assert.ok(match, name);
@@ -643,6 +783,7 @@ test('Runtime 错误包装保留执行三态并禁止自动重试', () => {
     for (const input of [
       { isError: true, structuredContent: { execution_state: state } },
       { isError: true, execution_state: state },
+      { isError: true, content: [{ type: 'text', text: JSON.stringify({ execution_state: state }) }] },
     ]) {
       const output = context.addRemoteProxyErrorExecutionState(input);
       assert.equal(output.structuredContent.execution_state, state);
@@ -652,6 +793,63 @@ test('Runtime 错误包装保留执行三态并禁止自动重试', () => {
   const missing = context.addRemoteProxyErrorExecutionState({ isError: true });
   assert.equal(missing.structuredContent.execution_state, 'unknown');
   assert.equal(missing.structuredContent.automatic_retry, false);
+  for (const state of ['unknown', 'not_executed']) {
+    const conflict = context.addRemoteProxyErrorExecutionState({
+      isError: true, execution_state: 'executed', structuredContent: { execution_state: state },
+    });
+    assert.equal(conflict.structuredContent.execution_state, 'unknown');
+    assert.equal(conflict.structuredContent.automatic_retry, false);
+  }
+});
+
+test('Runtime MAC 失效只重试明确未执行的请求一次', async () => {
+  const names = ['callRemoteProxyTool', 'normalizeRemoteProxyExecutionState',
+    'getRemoteProxyExecutionState', 'isTextContent', 'parseJsonObject', 'remoteProxyFailureState'];
+  const source = names.map((name) => {
+    const match = vendorMakerSource.match(new RegExp('(?:async )?function ' + name + '\\([^]*?\n\\}'));
+    assert.ok(match, name);
+    return match[0];
+  }).join('\n');
+  class RemoteProxyToolCallError extends Error {
+    constructor(name, state, error) {
+      super(error.message);
+      this.executionState = state;
+    }
+  }
+  for (const scenario of ['executed', 'unknown', undefined, 'not_executed', 'disconnect', 'pre_dispatch']) {
+    let calls = 0;
+    let refreshes = 0;
+    const context = createContext({
+      RemoteProxyToolCallError, McpError: class extends Error {}, ErrorCode: { InvalidRequest: -32600 },
+      MAKER_REMOTE_PROXY_EXPOSED_TOOL_NAMES: [], MAKER_TOOL_CALL_TIMEOUT_MS: 1000,
+      createRemoteProxyContext: () => ({ projectRoot: '/example-project' }),
+      prepareRemoteProxyToolArgsAsync: async ({ args }) => args,
+      materializeRemoteProxyToolAssets: async ({ result }) => result,
+      isRecord2: (value) => value !== null && typeof value === 'object',
+      isMakerMacExpiredFailure: () => true,
+      getMakerEnvironment: () => 'production',
+      requestTapAuthWithPat: async () => { refreshes += 1; },
+    });
+    new Script(source).runInContext(context);
+    const operation = context.callRemoteProxyTool({
+      targetDir: '/example-project', name: 'confirm_character_voice', args: {},
+      manager: { callTool: async (_proxy, _request, _options, dispatched) => {
+        calls += 1;
+        if (scenario !== 'pre_dispatch') dispatched();
+        if (scenario === 'disconnect' || scenario === 'pre_dispatch') throw new Error('授权已失效');
+        return { isError: true, execution_state: scenario };
+      } },
+    });
+    if (scenario === 'disconnect' || scenario === 'pre_dispatch') {
+      await assert.rejects(operation, (error) => error.executionState ===
+        (scenario === 'disconnect' ? 'unknown' : 'not_executed'));
+    } else {
+      await operation;
+    }
+    const retry = scenario === 'not_executed' || scenario === 'pre_dispatch';
+    assert.equal(calls, retry ? 2 : 1, String(scenario));
+    assert.equal(refreshes, retry ? 1 : 0, String(scenario));
+  }
 });
 
 test('Runtime 账号检查仅在明确 BLACKLISTED 时阻止访问', async () => {
@@ -683,7 +881,7 @@ test('Runtime user-skills pull 拒绝写入根路径中的符号链接', () => {
   const calls = [];
   const context = createContext({
     [match[0].match(/current = (path\d*)\.join/)[1]]: { join: (...parts) => parts.join('/') },
-    pathExists: (value) => value.endsWith('/.codex'),
+    [match[0].match(/(pathExists\d*)\(current\)/)[1]]: (value) => value.endsWith('/.codex'),
     [match[0].match(/(fs\d*)\.lstatSync/)[1]]: { lstatSync: () => ({ isSymbolicLink: () => true }) },
   });
   new Script(match[0]).runInContext(context);
@@ -829,6 +1027,53 @@ test('设置页跟随宿主四语言并以英文回退', () => {
   for (const key of ['openConsole', 'consoleHint', 'consoleReady', 'consoleFailed']) {
     assert.ok(Object.prototype.hasOwnProperty.call(messages.en, key), key);
   }
+});
+
+test('Cindy 控制台不会复用同版本的独立 Runtime 或其他插件入口', () => {
+  const match = vendorMakerSource.match(/function createConsoleLauncherIdentity\([^]*?\n\}/);
+  assert.ok(match);
+  const environment = {};
+  const context = createContext({
+    [match[0].match(/return (createHash\d*)\(/)[1]]: createHash,
+    CONSOLE_PROTOCOL_VERSION: 3, process: { env: environment },
+  });
+  new Script(match[0]).runInContext(context);
+  const identity = (entry) => context.createConsoleLauncherIdentity('0.0.37', { entry, mtimeMs: 1 });
+  const standalone = identity('/example/standalone/maker.js');
+  environment.TAPTAP_MAKER_DISTRIBUTION = 'cindy_plugin';
+  assert.notEqual(identity('/example/standalone/maker.js'), standalone);
+  assert.notEqual(identity('/example/plugin-a/maker.js'), identity('/example/plugin-b/maker.js'));
+  assert.equal(identity('/example/plugin-a/maker.js'), identity('/example/plugin-a/maker.js'));
+});
+
+test('Cindy 识图固定 Server，服务不可用时报错且独立 Maker 保留原回退', async () => {
+  const names = ['emptyModelSettings', 'readModelSettings', 'configuredUiVisionModels',
+    'resolvedUiVisionModels', 'resolvedModelSettingsForDisplay'];
+  const source = names.map((name) => {
+    const match = vendorMakerSource.match(new RegExp('(?:async )?function ' + name + '\\([^]*?\n\\}'));
+    assert.ok(match, name);
+    return match[0];
+  }).join('\n');
+  const environment = { TAPTAP_MAKER_DISTRIBUTION: 'cindy_plugin' };
+  let available = true;
+  const context = createContext({
+    process: { env: environment }, UI_VISION_MODEL: 'fixture-model',
+    fetch: () => { throw new Error('Unexpected network call'); },
+    ConsoleError: class extends Error {},
+    readVisionSettings: () => undefined,
+    modelSettingsForDisplay: () => ({ vision: { source: 'server' }, profiles: [] }),
+    serverRecognitionAvailable: async () => available,
+  });
+  new Script(source).runInContext(context);
+  assert.equal(context.readModelSettings().vision.source, 'server');
+  assert.equal(context.readModelSettings().profiles.length, 0);
+  assert.equal((await context.resolvedUiVisionModels())[0].source, 'server');
+  available = false;
+  await assert.rejects(context.resolvedUiVisionModels(), /Server 识图暂不可用/);
+  assert.equal((await context.resolvedModelSettingsForDisplay()).vision.source, 'server');
+  environment.TAPTAP_MAKER_DISTRIBUTION = 'standalone';
+  assert.equal((await context.resolvedUiVisionModels())[0].source, 'chatgpt-web');
+  assert.equal((await context.resolvedModelSettingsForDisplay()).vision.source, 'chatgpt-web');
 });
 
 test('maker_console 只打开已校验的 loopback 控制台地址', async () => {
@@ -1084,6 +1329,201 @@ test('主工具只使用宿主注入的本地 workdir，并为长构建开启续
     card.html,
     /href="https:\/\/maker\.taptap\.cn\/app\/demo\?localDev=1&amp;hide_chat=1"/,
   );
+});
+
+const previewBuildSession = {
+  workdir_is_local: true,
+  workdir: '/tmp/trusted-maker',
+  session_id: 'session-1',
+};
+const previewBuildResult = {
+  content: [{ type: 'text', text: '- maker_url: https://maker.taptap.cn/app/demo?localDev=1' }],
+};
+const previewBuildLink = 'https://maker.taptap.cn/app/demo?localDev=1&hide_chat=1';
+
+async function buildWithPreviewPreferences(readPreferences) {
+  const harness = createMainHarness(async () => ({ ok: true, result: previewBuildResult }), readPreferences);
+  const build = await harness.call('maker_build', { session_context: previewBuildSession });
+  return { harness, build };
+}
+
+test('关闭构建后右侧预览时只返回链接，不打开右侧预览', async () => {
+  const { harness, build } = await buildWithPreviewPreferences(
+    async () => ({ ok: true, json: async () => ({ makerPreviewEnabled: false }) }),
+  );
+  assert.equal(build.ok, true);
+  assert.deepEqual(harness.previewRequests, []);
+  assert.equal(build.result.preview.ok, false);
+  assert.equal(build.result.preview.skipped, true);
+  assert.equal(build.result.preview.url, previewBuildLink);
+  assert.match(build.result.preview.message, /已在插件设置中关闭/);
+  assert.equal(build.result.preview_url, previewBuildLink);
+  assert.equal(build.result.user_facing_markdown, `[打开 TapTap Maker 预览](${previewBuildLink})`);
+  const card = harness.sentMessages.find((message) => message.type === 'card-update');
+  assert.match(card.html, /预览地址/);
+  assert.doesNotMatch(card.html, /已在右侧打开/);
+  assert.match(card.html, /href="https:\/\/maker\.taptap\.cn\/app\/demo\?localDev=1&amp;hide_chat=1"/);
+});
+
+test('未设置或开启预览开关时仍在右侧打开预览', async () => {
+  for (const preferences of [{}, { makerPreviewEnabled: true }]) {
+    const { harness, build } = await buildWithPreviewPreferences(
+      async () => ({ ok: true, json: async () => preferences }),
+    );
+    assert.equal(build.ok, true);
+    assert.deepEqual(JSON.parse(JSON.stringify(harness.previewRequests)), [{ url: previewBuildLink, sessionId: 'session-1' }]);
+    assert.equal(build.result.preview.ok, true);
+    assert.equal(build.result.preview.skipped, undefined);
+    const card = harness.sentMessages.find((message) => message.type === 'card-update');
+    assert.match(card.html, /已在右侧打开/);
+  }
+});
+
+test('预览开关读取失败或值非法时不打开右侧预览，构建结果和链接保持不变', async () => {
+  const failures = [
+    async () => ({ ok: false }),
+    async () => { throw new Error('kv unavailable'); },
+    async () => ({ ok: true, json: async () => null }),
+    async () => ({ ok: true, json: async () => [] }),
+    async () => ({ ok: true, json: async () => ({ makerPreviewEnabled: 'false' }) }),
+    async () => ({ ok: true, json: async () => ({ makerPreviewEnabled: null }) }),
+  ];
+  for (const readPreferences of failures) {
+    const { harness, build } = await buildWithPreviewPreferences(readPreferences);
+    assert.equal(build.ok, true);
+    assert.deepEqual(harness.previewRequests, []);
+    assert.equal(build.result.preview.skipped, true);
+    assert.match(build.result.preview.message, /设置读取失败/);
+    assert.equal(build.result.user_facing_markdown, `[打开 TapTap Maker 预览](${previewBuildLink})`);
+    assert.equal(harness.nodeRequests.length, 1);
+  }
+});
+
+const cloudDirtyBuildFailureText = [
+  '✗ Maker project submit failed; remote build was not started',
+  '',
+  '- project_root: /tmp/trusted-maker',
+  '- project_id: proj-1',
+  '- failure_stage: code_submit',
+  '- code_submit_status: failed',
+  '- remote_build_status: not_started',
+  '- branch: main',
+  '- status: failed_after_commit',
+  '- committed: yes',
+  '',
+  'note: Maker build was not started because submit did not produce a pushed state.',
+  '',
+  'push_recovery:',
+  '- committed_but_unpushed: yes',
+  '- retry_tool: maker_build_current_directory',
+  '- do_not_use_generic_git_push: yes',
+  '- user_message: 本地提交已经保留，但还没推送到 Maker 远端；请先按 failure.next_action 修复原因，再重试 Maker 提交/构建工具。',
+  '',
+  'failure:',
+  '- stage: push',
+  '- classification: remote_rejected',
+  '- retryable: no',
+  '- exit_code: 1',
+  '- stderr:',
+  '    remote: [pre-receive] cloud workspace has uncommitted changes that this push would overwrite:',
+  '    remote:   .project/settings.json',
+  '    remote: [pre-receive] commit them in the cloud (or via the Git commit API), pull, then push again',
+  '    To https://maker.example.test/git/project.git',
+  '   ! [remote rejected] HEAD -> main (pre-receive hook declined)',
+  '    error: failed to push some refs',
+  '- next_action: 远端已有新提交。不要新建分支、不要手动执行通用 git push；先询问用户是否 pull/rebase 当前 Maker 远端变更，再重试 maker_build_current_directory。',
+].join('\n');
+
+function buildFailureResponder(resultText, structuredContent = { success: false }) {
+  return async () => ({
+    ok: true,
+    result: {
+      isError: true,
+      structuredContent,
+      content: [{ type: 'text', text: resultText }],
+    },
+  });
+}
+
+test('云端工作区脏改动拒绝时附插件内可执行恢复步骤并保留执行态', async () => {
+  const harness = createMainHarness(buildFailureResponder(cloudDirtyBuildFailureText, {
+    success: false,
+    execution_state: 'executed',
+  }));
+  const build = await harness.call('maker_build', { session_context: previewBuildSession });
+  assert.equal(build.ok, true);
+  assert.equal(build.result.isError, true);
+  const text = build.result.content.map((item) => item.text).join('\n');
+  assert.match(text, /cloud workspace has uncommitted changes/);
+  assert.match(text, /征得同意后调用 maker_build 并传 confirm_remote_build_without_submit=true/);
+  assert.match(text, /git fetch origin/);
+  assert.match(text, /origin\/main merge（或 rebase）进本地 main/);
+  assert.match(text, /保留本地未推送提交/);
+  assert.match(text, /pull\/rebase 解决不了/);
+  assert.equal(build.result.structuredContent.execution_state, 'executed');
+  assert.match(build.result.structuredContent.message, /confirm_remote_build_without_submit=true/);
+  // 恢复指引只追加，不改写 Runtime 的失败详情。
+  assert.match(text, /- status: failed_after_commit/);
+});
+
+test('普通 remote_rejected 失败不附加云端脏工作区恢复步骤', async () => {
+  const plainRejectedText = cloudDirtyBuildFailureText.replace(
+    /remote: \[pre-receive\] cloud workspace[^\n]*\n[\s\S]*?error: failed to push some refs/,
+    '    To https://maker.example.test/git/project.git\n   ! [remote rejected] HEAD -> main (non-fast-forward)\n    error: failed to push some refs',
+  );
+  assert.doesNotMatch(plainRejectedText, /cloud workspace/);
+  const harness = createMainHarness(buildFailureResponder(plainRejectedText));
+  const build = await harness.call('maker_build', { session_context: previewBuildSession });
+  assert.equal(build.ok, true);
+  assert.equal(build.result.isError, true);
+  const text = build.result.content.map((item) => item.text).join('\n');
+  assert.doesNotMatch(text, /confirm_remote_build_without_submit/);
+  assert.doesNotMatch(text, /sync 提交/);
+  assert.match(build.result.structuredContent.message, /push_recovery/);
+  assert.doesNotMatch(build.result.structuredContent.message, /confirm_remote_build_without_submit/);
+});
+
+for (const stalledStage of ['fetch', 'json']) {
+  test(`/kv ${stalledStage} 永不返回时约 2 秒中止，保留构建成功和预览链接`, { timeout: 5000 }, async () => {
+    let requestSignal;
+    const startedAt = Date.now();
+    const { harness, build } = await buildWithPreviewPreferences(async (url, options) => {
+      assert.equal(url, '/kv');
+      requestSignal = options.signal;
+      const stalled = () => new Promise((_resolve, reject) => {
+        requestSignal.addEventListener('abort', () => reject(requestSignal.reason), { once: true });
+      });
+      return stalledStage === 'fetch' ? stalled() : { ok: true, json: stalled };
+    });
+    assert.equal(requestSignal.aborted, true);
+    assert.ok(Date.now() - startedAt >= 1900, 'must allow approximately two seconds before aborting');
+    assert.equal(build.ok, true);
+    assert.deepEqual(harness.previewRequests, []);
+    assert.equal(harness.nodeRequests.length, 1, 'must not rebuild or resubmit');
+    assert.equal(build.result.preview.skipped, true);
+    assert.equal(build.result.preview_url, previewBuildLink);
+    assert.match(build.result.preview.message, /设置读取失败/);
+    assert.equal(build.result.user_facing_markdown, `[打开 TapTap Maker 预览](${previewBuildLink})`);
+    const card = harness.sentMessages.find((message) => message.type === 'card-update');
+    assert.match(card.html, /预览地址/);
+    assert.doesNotMatch(card.html, /已在右侧打开/);
+  });
+}
+
+test('右侧预览打开失败时卡片不再声称已打开，且不算作用户关闭', async () => {
+  const harness = createMainHarness(
+    async () => ({ ok: true, result: previewBuildResult }),
+    undefined,
+    async () => ({ ok: false, message: 'host refused' }),
+  );
+  const build = await harness.call('maker_build', { session_context: previewBuildSession });
+  assert.equal(build.ok, true);
+  assert.equal(harness.previewRequests.length, 1);
+  assert.equal(build.result.preview.ok, false);
+  assert.equal(build.result.preview.skipped, undefined);
+  assert.equal(build.result.preview.message, 'host refused');
+  const card = harness.sentMessages.find((message) => message.type === 'card-update');
+  assert.doesNotMatch(card.html, /已在右侧打开/);
 });
 
 test('动态工具列表携带可信项目 root，并过滤固定工具', async () => {
@@ -2526,6 +2966,35 @@ test('只在 Maker CLI 最终 JSON 到达后判定完成', () => {
     ['doctor', '--json'],
     '{"env":"production","git":{"ready":true}}\n',
   ), true);
+});
+
+test('新版 Runtime transport 能回收 Cindy 代理子进程', async () => {
+  const match = vendorMakerSource.match(/HiddenStdioClientTransport = class \{[^]*?\n    \};/);
+  assert.ok(match);
+  const handle = fakeChildHandle();
+  let kills = 0;
+  handle.kill = () => {
+    kills += 1;
+    handle.emit('exit', null, 'SIGTERM');
+    handle.emit('close', null, 'SIGTERM');
+    return true;
+  };
+  const child = adapter.createDeferredChild(Promise.resolve(handle), {});
+  assert.equal(child.exitCode, null);
+  assert.equal(child.signalCode, null);
+  const context = createContext({
+    PassThrough, ReadBuffer: class { clear() {} },
+    spawn: () => child, process: { platform: 'win32' },
+    setTimeout: (callback) => setTimeout(callback, 5), clearTimeout,
+  });
+  new Script(match[0]).runInContext(context);
+  const transport = new context.HiddenStdioClientTransport({ command: 'node', stderr: 'pipe' });
+  await transport.start();
+  await transport.close();
+  assert.equal(kills, 1);
+  assert.equal(child.signalCode, 'SIGTERM');
+  await transport.close();
+  assert.equal(kills, 1);
 });
 
 test('deferred child 会保留宿主答复前写入 stdin 的 PAT 字节', async () => {

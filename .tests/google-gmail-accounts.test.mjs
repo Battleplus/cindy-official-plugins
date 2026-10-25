@@ -192,8 +192,9 @@ for (const [plugin, prefix] of Object.entries(plugins)) {
     assert.equal((await call(prefix + '_run', { account: 'acc-personal', command: ['list'] })).ok, false);
     assert.equal(requests.length, 0);
     f.accounts[0].scopeStale = true;
-    assert.equal((await call(prefix + '_run', { account: 'acc-work', command: ['list'] })).ok, false);
-    assert.equal(requests.length, 0);
+    // An added mark-read scope must not disable existing read/compose grants.
+    assert.equal((await call(prefix + '_run', { account: 'acc-work', command: ['list'], session_context: { workdir_is_local: true, workdir_is_read_only: false, workdir: '/test-workdir' } })).ok, true);
+    assert.equal(requests.length, 1);
     f.accounts[0].scopeStale = false;
     assert.equal((await call(prefix + '_run', { account: 'acc-work', command: ['list'], session_context: { workdir_is_local: true, workdir_is_read_only: false, workdir: '/test-workdir' } })).ok, true);
     assert.equal(requests[0].authAccount, 'acc-work');
@@ -213,7 +214,7 @@ for (const [plugin, prefix] of Object.entries(plugins)) {
       await handler({ type: 'tool-call', tool: prefix + '_run', callId: 'old-host', args: {} });
       assert.equal(replies.length, 1);
       assert.equal(replies[0].ok, false);
-      assert.match(replies[0].message, /尚未执行.*0\.1\.82/);
+      assert.match(replies[0].message, /尚未执行.*0\.1\.92/);
       await handler({ type: 'tool-call', tool: prefix + '_accounts', callId: 'accounts', args: {} });
       assert.equal(replies[1].ok, true);
       assert.equal(replies[1].result.accounts.length, 2);

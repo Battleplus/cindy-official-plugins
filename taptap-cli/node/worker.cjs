@@ -235,6 +235,13 @@ function parseEnvelope(primary, fallback) {
   return null;
 }
 
+// Upgrade/skills notices ride on the CLI envelope under `_notice`. Callers that
+// return a whitelisted payload instead of the envelope still need to forward
+// them — dropping the notice would hide a newer version the user should see.
+function noticeOf(env) {
+  return env && env._notice && typeof env._notice === 'object' ? env._notice : null;
+}
+
 // Run the CLI binary with a keep-alive heartbeat. `callId` (when present) is
 // echoed in progress notifications so main.js can keep the host tool-call
 // window alive for long tasks (uploads, login polling).
@@ -409,7 +416,7 @@ function getAliases(runOpts) {
 // `taptap-cli __complete <path> ""` answers with the children of <path>, one
 // `name<TAB>description` per line. It is the only source that knows about the
 // commands the OpenAPI schema does not list (the `+` subcommands such as
-// `app +list` and the third-level `asset-library ai-image +plan`), which is why
+// `app +list` and `asset-library +ai-image-rules`), which is why
 // the listing is built from it instead of from a hand-written table.
 //
 // The last argument is the partial word being completed, so an empty string
@@ -517,6 +524,7 @@ const EXCLUDED_COMMANDS = new Set(['update']);
 const SERVICE_DESCRIPTIONS = {
   app: '游戏资料、包体槽位、版本生命周期、审核与发布',
   'asset-library': '图片/视频素材库检索、收录与上传',
+  'community-management': '论坛社区帖子、子版块、一级回复与子回复(当前只读)',
   'dashboard-stats': '下载、曝光、转化、预约、订单、评分等数据表现查询',
   developer: '开发者账号与厂商列表',
   'package-management': '包体库、线上/待处理包、自测入口与小游戏能力',
@@ -558,9 +566,9 @@ const TOKEN_RE = /^[a-z0-9+][a-z0-9+._:-]*$/i;
 const GLOBAL_RULES = [
   '写门禁:risk 为 write / high-risk-write 的操作,必须先向用户说明参数与影响并取得明确同意;先用 dry_run:true 预览,再用完全相同的参数加 yes:true 执行。既没有 dry_run 也没有 yes 的写调用会被拒绝,只读会话里的写调用一律拒绝;取得用户同意是你的职责,yes 是执行开关而不是同意本身。例外:插件编排的 auth login-start / auth login-wait 是登录流程本身(用户在浏览器里完成授权),不走这道确认门禁,但只读会话仍然拒绝。--yes 不代表用户同意协议;遇到服务端要求额外确认时只展示响应实际返回的 blockers / warnings,协议签署走独立的 agree-sce-agreement(先展示协议名称与 URL,用户明确同意后加 yes:true 执行,再重查确认 blocker 消失)。',
   '参数:scope 字段(developer_id / app_id)直接传,worker 映射成 --dev-id / --app-id;其余业务字段必须放进 args.data(JSON 对象);除 scope 和 data 外的键都是控制 flag,透传成 --flag,合法性由 CLI 按各命令自己的 schema 校验(未知 flag 由 CLI 拒绝);位置参数(如文件路径)放 args._positional 数组。本地文件路径必须是相对会话工作目录的路径:CLI 以会话工作目录为基准校验并拒绝绝对路径与 ../ 越界。',
-  '发现命令:list_tools() 给顶层命令;list_tools(category:"<命令路径>") 逐层下钻(如 category:"asset-library",再 category:"asset-library ai-image");不确定命令名时直接传前缀搜索(如 category:"up")。某命令的完整帮助(含全部 flag)用 call_tool(name:"<命令>", args:{_help:true}),也可以用 call_tool(name:"help", args:{_positional:["<命令>"]})。list_tools 下钻不含 outputSchema,需要某操作的输出结构时用 call_tool(name:"schema", args:{_positional:[service, method]}) 查完整输入输出。',
+  '发现命令:list_tools() 给顶层命令;list_tools(category:"<命令路径>") 下钻某个服务的操作(如 category:"asset-library");不确定命令名时直接传前缀搜索(如 category:"up")。某命令的完整帮助(含全部 flag)用 call_tool(name:"<命令>", args:{_help:true}),也可以用 call_tool(name:"help", args:{_positional:["<命令>"]})。list_tools 下钻不含 outputSchema,需要某操作的输出结构时用 call_tool(name:"schema", args:{_positional:[service, method]}) 查完整输入输出。',
   '调用示例:先 list_tools(category) 看该域操作与参数(enum=可选值、pattern=格式、required=true=必填),再 call_tool。例——创建冒险游戏:call_tool(name:"app create-app", args:{developer_id:"1001", data:{title:"我的游戏", category:"adventure", package_type:"apk", developer_role:"developer"}, dry_run:true});用户确认后同参数加 yes:true。务必按 inputSchema 的 enum 取值、按 pattern 校验格式,不要猜值。',
-  '输出:成功返回的 data 是 CLI 的 JSON envelope(顶层 ok / data / error)。业务失败以 ok:false 返回,message 含 error.type / error.message / error.hint。不要手动传 json / format flag,输出已默认结构化(默认文本的命令如 auth status 由插件自动补 --json)。',
+  '输出:成功结果的 result.envelope 是 CLI 的 JSON envelope(顶层 ok / data / error),result.name / result.duration_ms 是执行元信息;失败结果的 data 就是 CLI envelope。业务失败以 ok:false 返回,message 含 error.type / error.message / error.hint。不要手动传 json / format flag,输出已默认结构化(默认文本的命令如 auth status 由插件自动补 --json)。',
   '失败三态:失败结果带 `execution_state` 字段,只有两个取值。`not_executed` 表示操作没有生效,可按 message 修正参数后重试;`unknown` 表示写操作可能已经在服务端生效,必须先核对实际状态(上传类用 task +list 查看已有任务)再决定是否重试,禁止直接重跑。',
   '身份:缺 developer_id / app_id 时先用 overview 或 developer 命令查询候选,多候选让用户选,不要猜 ID。',
   '手册:完整业务流程与领域规范用 ghost_manual({ghost_id:"taptap-cli", path:...}) 读取,入口见 taptap-suite——这是本插件的执行纪律层。需要 CLI 自带的官方原文(随 CLI 版本内置)时用 call_tool(name:"skills", args:{_positional:["list"]}) 看清单、call_tool(name:"skills", args:{_positional:["read","<手册名>"]}) 读取,作为深入参考;两者冲突时以本插件手册的执行纪律为准。',
@@ -695,7 +703,7 @@ async function listTools(params) {
             return entry;
           }),
         rules,
-        hint: '传 category 下钻:先看子命令,再逐层深入(如 category:"asset-library",然后 category:"asset-library ai-image")。' +
+        hint: '传 category 下钻某个服务的操作(如 category:"asset-library")。' +
           '不确定命令名时可直接传前缀搜索(如 category:"up")。' +
           '某命令的完整帮助用 call_tool(name:"<命令>", args:{_help:true})。',
       },
@@ -845,12 +853,16 @@ async function authLoginStart(params) {
     return { ok: false, errorCode: res.cliErrorCode || 'CLI_NOT_INSTALLED', message: res.message };
   }
   const env = parseEnvelope(res.stdout, res.stderr);
+  // Notices ride on the CLI envelope. The login flow does not hand the envelope
+  // to the agent (it carries the device code), so forward just the notice.
+  const notice = noticeOf(env);
   const data = env && env.ok === true && env.data ? env.data : null;
   if (!data || !data.verification_url || !data.device_code) {
     return {
       ok: false,
       errorCode: 'LOGIN_START_FAILED',
       message: '发起授权失败:' + briefFailure(res, env),
+      data: notice ? { _notice: notice } : undefined,
     };
   }
   const interval = Number(data.interval) > 0 ? Number(data.interval) : 5;
@@ -862,6 +874,7 @@ async function authLoginStart(params) {
       interval_seconds: interval,
       login_handle: newLoginHandle(data.device_code, data.expires_at, interval),
       display_contract: '把 verification_url 按两行原样展示给用户(第一行仅"请完成授权:",第二行仅 URL),然后立即用 login_handle 调用 auth login-wait,不要等待用户回复。',
+      ...(notice ? { _notice: notice } : {}),
     },
   };
 }
@@ -893,16 +906,20 @@ async function authLoginWait(params) {
   if (res.cliUnavailable) {
     return { ok: false, errorCode: res.cliErrorCode || 'CLI_NOT_INSTALLED', message: res.message };
   }
+  const env = parseEnvelope(res.stdout, res.stderr);
+  // The result is a whitelisted login status rather than the CLI envelope, so
+  // carry any upgrade notice across explicitly.
+  const notice = noticeOf(env);
   if (res.killed) {
     return {
       ok: false,
       errorCode: 'LOGIN_PENDING',
       message: '授权仍在等待中(本次轮询已到时限,用户尚未完成)。可用同一个 login_handle 再次调用 auth login-wait 继续等待。',
+      data: notice ? { _notice: notice } : undefined,
     };
   }
-  const env = parseEnvelope(res.stdout, res.stderr);
   if (env && env.ok === true) {
-    return { ok: true, data: { status: 'authorized' } };
+    return { ok: true, data: { status: 'authorized', ...(notice ? { _notice: notice } : {}) } };
   }
   return {
     ok: false,
@@ -914,6 +931,7 @@ async function authLoginWait(params) {
     message: '授权未完成:' + briefFailure(res, env)
       + ';该轮询是否已经换到凭证无法确定:请先 call_tool(name:"auth status") 核对登录态,'
       + '确认未登录后再调用 auth login-start 换新链接。',
+    data: notice ? { _notice: notice } : undefined,
   };
 }
 
@@ -952,13 +970,14 @@ const ORCHESTRATED_RISKS = new Map([
   ['auth login-wait', 'write'],
 ]);
 
-// Command paths whose whole job is to print reference material: a command's
-// help and the two read-only `skills` subcommands. They are not operations, so
-// their own `--help` carries no `Risk:` line and the fail-closed default would
-// drag a doc dump through the confirmation gate. Keyed by the full path — a
-// `skills` subcommand that does something else goes through the ordinary risk
-// lookup instead of inheriting this exemption.
-const DOCUMENTATION_PATHS = new Set(['help', 'skills list', 'skills read']);
+// Command paths whose whole job is to print reference material or local read-only
+// state: a command's help and the read-only `skills` subcommands (`list` / `read`
+// / `status`). They are not service operations, so their own `--help` may carry
+// no `Risk:` line and the fail-closed default would drag a doc/status dump
+// through the confirmation gate. Keyed by the full path — a `skills` subcommand
+// that does something else goes through the ordinary risk lookup instead of
+// inheriting this exemption.
+const DOCUMENTATION_PATHS = new Set(['help', 'skills list', 'skills read', 'skills status']);
 
 // Heads whose positional operands are identifiers — a service and method, a
 // manual name, a command name, a profile, an event key, a task id, a URL —
@@ -1168,7 +1187,7 @@ async function callTool(params) {
       return {
         ok: false,
         errorCode: 'UNKNOWN_TOOL',
-        message: '未知操作 "' + name + '";先用 list_tools() 看顶层命令,或传 category 逐层下钻(如 category:"asset-library ai-image")。',
+        message: '未知操作 "' + name + '";先用 list_tools() 看顶层命令,或传 category 下钻某个服务(如 category:"asset-library")。',
       };
     }
   }

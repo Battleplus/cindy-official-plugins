@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
+// The workflow is shared source outside plugin directories. Run its behavioral
+// and bundled-source checks even when no plugin-prefixed test was selected.
+import './mail-compose.test.mjs';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { validateGhostManifest } from './contracts/plugin-manifest.20ab276de16e.mjs';
+import { validateGhostManifest } from './contracts/plugin-manifest.8f84016fdcd9.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 
@@ -175,7 +178,7 @@ function validateLocalizedLabels(raw, declarations, label) {
 function validateLocaleResource(pluginDir, locale, raw, manifest) {
   const label = `${pluginDir}/locales.${locale}`;
   assert.ok(raw && typeof raw === 'object' && !Array.isArray(raw), `${label} must be an object`);
-  const allowed = new Set(['name', 'description', 'whenToUse', 'tools', 'panel', 'network', 'node', 'setup']);
+  const allowed = new Set(['name', 'description', 'whenToUse', 'tools', 'panel', 'mainView', 'taskView', 'network', 'node', 'setup']);
   for (const field of Object.keys(raw)) assert.ok(allowed.has(field), `${label} contains unknown field ${field}`);
   assertText(raw.name, `${label}.name`, 64);
   assertText(raw.description, `${label}.description`, 300);
@@ -206,6 +209,15 @@ function validateLocaleResource(pluginDir, locale, raw, manifest) {
         if (text.description !== undefined) assertText(text.description, `${label}.tools.${name}.parameters.${pointer}.description`, 1024);
       }
     }
+  }
+
+  // Host contract: a page title may be translated only when the manifest declares one.
+  for (const field of ['mainView', 'taskView']) {
+    if (raw[field] === undefined) continue;
+    assert.ok(manifest[field]?.title, `${label}.${field} is present but manifest.${field}.title is absent`);
+    assert.ok(raw[field] && typeof raw[field] === 'object' && !Array.isArray(raw[field]), `${label}.${field} must be an object`);
+    assert.deepEqual(Object.keys(raw[field]), ['title'], `${label}.${field} fields`);
+    assertText(raw[field].title, `${label}.${field}.title`, 64);
   }
 
   if (raw.panel !== undefined) {
@@ -526,6 +538,32 @@ test('the pinned Cindy manifest contract rejects invalid manifest shapes', () =>
     /released stable Cindy version/,
     'official releases must not use the versionless development sentinel',
   );
+});
+
+test('showTaskPreferences is an optional card visibility flag in both manifest formats', () => {
+  for (const schemaVersion of [2, 3]) {
+    const base = { schemaVersion, id: 'task-preferences-fixture', name: 'Task preferences',
+      version: '1.0.0', entry: 'main.js', description: 'Fixture', whenToUse: 'Fixture',
+      ...(schemaVersion === 2 ? { slots: ['tool'] } : { minCindyVersion: '0.1.0' }),
+      tools: [{ name: 'run', description: 'Run the fixture' }] };
+    const omitted = validateGhostManifest(base);
+    assert.equal(omitted.ok, true);
+    assert.equal(Object.hasOwn(omitted.manifest, 'showTaskPreferences'), false,
+      'omission must not insert a new field into existing normalized manifests');
+    for (const showTaskPreferences of [true, false]) {
+      const manifest = { ...base, showTaskPreferences };
+      assert.doesNotThrow(() => validateOfficialManifest('task-preferences-fixture', manifest));
+      const result = validateGhostManifest(manifest);
+      assert.equal(result.ok, true);
+      assert.equal(result.manifest.showTaskPreferences, showTaskPreferences);
+      assert.deepEqual(validateGhostManifest(result.manifest), result,
+        'repeated normalization must retain the explicit policy');
+    }
+    for (const showTaskPreferences of [null, 'false', 0, {}, []]) {
+      assert.equal(validateGhostManifest({ ...base, showTaskPreferences }).ok, false,
+        `invalid showTaskPreferences: ${JSON.stringify(showTaskPreferences)}`);
+    }
+  }
 });
 
 test('repository admission does not depend on the current Host capability catalog', () => {

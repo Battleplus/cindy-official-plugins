@@ -6,7 +6,7 @@
 
 ## 本地图片
 
-本地图片的上传执行归 materials 手册第一部分（即 `call_tool(name:"upload", …)`，支持 `dry_run:true` 预览与 `yes:true` 确认，图片需稳定 `idempotency_key`）。上传成功后使用返回的 `data.url`、`data.assetId` 和完整 `data.info`（含 `width`、`height`、`size`、`format`）继续素材库语境的解读。asset ID 只表示素材库收录结果，不表示图片已写入资料字段。
+本地图片的上传执行归 materials 手册第一部分（即 `call_tool(name:"upload", …)`，支持 `dry_run:true` 预览与 `yes:true` 确认，图片需稳定 `idempotency_key`）。上传成功后使用返回的 `data.url`、`data.assetId` 和完整 `data.info`（含 `width`、`height`、`size`、`format`）继续素材库语境的解读。asset ID 只表示素材库收录结果，不表示图片已写入资料字段。字段写入转 app-edit 手册时必须把 `data.url` 与完整 `data.info` 一起传（值形态 `{"url": ..., "info": ...}`）；不带 info 不会报错，但 C 端拿不到宽高，竖版图会被按 16:9 裁切。
 
 ## HTTPS 图片
 
@@ -27,19 +27,19 @@
 - 不得根据文字描述生成新的游戏截图。
 - 截图源必须是实际运行中的游戏画面或用户提供的真实游戏截图。
 - 模型只能进行裁剪、缩放、格式转换和压缩等整理操作。
-- 截图整理使用 `+validate --rule screenshot`，不得使用 `+plan --rule screenshot`。
+- 截图整理使用 `+ai-image-validate --rule screenshot`，不得使用 `+ai-image-plan --rule screenshot`。
 
 先读取规则并生成计划：
 
 ```text
-call_tool(name:"asset-library ai-image +rules")
-call_tool(name:"asset-library ai-image +plan", args:{rule:"<rule>", prompt:"<creative brief>", context:"<game context>", count:3})
+call_tool(name:"asset-library +ai-image-rules")
+call_tool(name:"asset-library +ai-image-plan", args:{rule:"<rule>", prompt:"<creative brief>", context:"<game context>", count:3})
 ```
 
-默认输出根目录为 `.taptap/ai-image/<run-id>`，`candidates/` 是 CLI 约定的本地候选文件子目录，不是 TapTap 官方目录，也不是素材库接口要求。模型必须把实际 PNG/JPEG 文件写入计划指定的 `<output-dir>/candidates/` 目录。可用 `+plan --output-dir <directory>` 定制输出根目录；该目录须通过 CLI 的本地安全路径校验，不能借此写入工作目录之外的路径。生成后对同一个输出根目录执行：
+默认输出根目录为 `.taptap/ai-image/<run-id>`，`candidates/` 是 CLI 约定的本地候选文件子目录，不是 TapTap 官方目录，也不是素材库接口要求。模型必须把实际 PNG/JPEG 文件写入计划指定的 `<output-dir>/candidates/` 目录。可用 `+ai-image-plan --output-dir <directory>` 定制输出根目录；该目录须通过 CLI 的本地安全路径校验，不能借此写入工作目录之外的路径。生成后对同一个输出根目录执行：
 
 ```text
-call_tool(name:"asset-library ai-image +validate", args:{_positional:[".taptap/ai-image/<run-id>"], rule:"<rule>"})
+call_tool(name:"asset-library +ai-image-validate", args:{_positional:[".taptap/ai-image/<run-id>"], rule:"<rule>"})
 ```
 
 校验成功会写出本地 `manifest.json`，其中包含候选文件、规则结果、`upload_pending=true` 和完整的 `upload` 调用参数。校验失败返回验证失败退出码，不写 manifest，不上传；必须先让用户确认候选图和上传意图，确认后转 materials 手册第一部分执行上传。校验结果中的候选路径、尺寸、格式、文件大小和 `upload_command` 是后续交接依据；CLI 只提示上传命令，不自动上传、不写入资料字段、不绑定字段、不提审。
@@ -50,7 +50,7 @@ call_tool(name:"asset-library ai-image +validate", args:{_positional:[".taptap/a
 
 ## 边界与结果
 
-- 收录图片不等于已经写入图标、宣传图或截图字段；字段修改转 app-edit 手册，并按目标字段规格 read-before-write。
+- 收录图片不等于已经写入图标、宣传图或截图字段；字段修改转 app-edit 手册，并按目标字段规格 read-before-write；写入时带上 `data.url` 与 `data.info`，省略 info 会让 C 端按 16:9 回落。
 - 本地模型生图不等于素材库收录；必须先完成本地规则校验，再由用户确认后转 materials 手册第一部分上传。
 - 上游返回 `recoverable=true` 时，使用 `reason` 解释原因并按 `guidance` 给出重试、调整参数或刷新登录等下一步。
 - 上游响应缺少预期结果字段时按异常处理，不把异常当成“收录成功”或“素材库为空”。

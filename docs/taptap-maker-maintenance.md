@@ -4,8 +4,46 @@
 
 ## Read first
 
+### 2.1.19: validation arguments and evidence boundaries
+
+Validation checks Git ignore rules and the index without changing either. Unignored evidence,
+tracked files or failed checks prevent dispatch. Invalid mode-specific arguments are rejected.
+Structured Runtime absolute-path fields are removed from responses; relative evidence locations
+and original archived reports remain available.
+
+### 2.1.18: Large validation reports
+
+Only local validation raises the CLI stdout limit to 8 MiB to receive Runtime's
+4 MiB reports plus their wrapper; account commands and stderr retain 2 MiB limits.
+Results above 64 KiB return an explicitly marked summary and original archive paths,
+without duplicating multi-MiB reports into MCP text and structuredContent. Read the
+evidence files for the full report. The 14-minute CLI and 15-minute Host limits remain;
+a per-attempt budget does not guarantee that all automatic retries can finish.
+
+### 2.1.17: Cindy local validation entry
+
+`maker_validate` calls bundled `preview status` and `preview validate` through the
+existing fixed Node entry. It does not modify vendor, standalone MCP or project Skills.
+Cindy's Manual supplies the workflow; source files, installed copies and conflicting
+links are reported separately. The official 0.0.37 source-directory check is identical
+to the bundled one and must not be classified as a Cindy-only defect.
+
+Preserve trusted-workspace overriding, readonly enforcement, no takeover of active or
+unverified previews, fixed CLI arguments, CLI disposal only after final JSON, failed
+reports and partial evidence on nonzero exit, and COMPLETED versus game PASS. Evidence
+is confined to project `.maker/validation-evidence/` and directory links are rejected.
+Do not automatically install Runtime, update the dev kit or replace project files.
+Pass each valued validation option as a single `--flag=value` argument. Even with
+all options enabled, argv must fit Cindy childSpawn's 16-entry limit; otherwise
+the host discards the request and spawning times out.
+
+Current upgrade: plugin 2.1.22 / Runtime 0.0.37, with eight bundle patches
+listed in the repository README and updated child-process compatibility.
+The inventory and device results below describe the historical 0.0.33/0.0.34
+baseline, not device acceptance of 0.0.37.
+
 - Do not remove Cindy safeguards merely to obtain an unmodified upstream bundle.
-- The current vendor has **five** patches, not only executed.
+- The historical 0.0.34 vendor has **five** patches, not only executed; 0.0.37 has eight.
 - **Logging is not globally disabled.** Cindy relinquished remote-watcher ownership and idle cleanup; system Node runs the watcher and Maker owns its lifetime.
 - Maker CLI already validates and persists PAT. Cindy adds status detection, masking, UI and process compatibility; those are not all redundant implementations.
 - New versions or matching keywords do not prove equivalent fixes. Inspect released artifacts and behavior.
@@ -116,7 +154,7 @@ Source paths below are relative to taptap-maker/. Tests are in .tests/taptap-mak
 | T4 Errors/states | Parse structuredContent, remote_result, error_details and fixed texts; retain unknown after recovery/retry and request remote verification. | 891868e, d0b428c, 7465ceb; main.js | Sanitization preserves state, hides credentials/paths/stacks, retains exact balance signal without misclassifying unrelated errors. |
 | T5 Status/catalog | Alias fixed tools to maker_status/maker_build, exclude dynamic dispatch; catalog is a bundled snapshot; status can emit /tracking. | 891868e, bdc6bdd; main.js, manifest, locales | Preserve detail/skip_remote_sync, no zero-network claim or skipped access/project checks. |
 | T6 Guidance | Map standalone CLI/npm/env instructions to Cindy actions; distinguish missing/ready/upgrade-suggested dependencies; both entries set cindy_plugin. | 891868e; main.js, node/maker-mcp.cjs, node/maker-child.cjs | No standalone npm replacement of bundled runtime. Text parsing is debt, not disposable behavior. |
-| U1 Build UI | Validate maker_url, retain localDev=1, add hide_chat=1/sessionId, open sidebar and return link. | 41d53ce, df08857; main.js | Page failure does not erase build success or resubmit. This is remote preview, not UrhoX local window. |
+| U1 Build UI | Validate maker_url, retain localDev=1, add hide_chat=1/sessionId, open sidebar (unless the user turned off the `makerPreviewEnabled` setting) and return link. | 41d53ce, df08857; main.js, settings.js | Page failure does not erase build success or resubmit. With the setting off, or if it cannot be read, the sidebar is not opened and the link is still returned (`preview.skipped`). This is remote preview, not UrhoX local window. |
 | U2 Docs/UI | Four locales, error-code mapping, Skill-to-Manual migration, Maker-specific recall, fixed ads resource and UrhoX library restrictions. | e5e1396, 7f00a60, a887ccc, 20b0b06 | Do not guide Agents around the plugin; these remain delivery behavior even without Runtime patches. |
 
 ## 4. Branch history and superseded fixes
