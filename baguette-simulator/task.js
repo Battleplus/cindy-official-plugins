@@ -76,6 +76,7 @@ function render() {
     ]));
     else if (d.state === 'Booted') inner.append(hero(GLYPH.big, d.name, state.busy ? T.busy : T.connecting, [h('span', { class: 'spinner' })]));
     else inner.append(hero(GLYPH.big, T.offTitle(d.name), T.offBody, [
+      globalThis.CindySimPages.memoryPicker(d,lang,!!busy),
       h('button', { class: 'btn cta', text: busy === d.udid ? T.starting : T.start, disabled: !!busy, onclick: () => act('task_boot', { udid: d.udid }, d.udid) }),
       (state.devices || []).length > 1 ? h('button', { class: 'link', text: T.change, disabled: !!busy, onclick: () => { choosing = true; render(); } }) : null,
     ]));
@@ -105,9 +106,12 @@ async function act(action, params, marker) {
   const request = pending = {};
   busy = marker; note = null; render();
   try {
-    const r = await rpc(action, { sessionId: session, ...params }, T.timeout);
+    const device = state?.devices?.find(d=>d.udid===params.udid)||state?.device;
+    const memory = action==='task_boot' ? globalThis.CindySimPages.memoryArgs(device) : {};
+    const r = await rpc(action, { sessionId: session, ...params, ...memory }, T.timeout);
     if (pending !== request) return;
     if (!r.ok) throw r;
+    if (action==='task_boot') M.showMemoryNotice(r, lang, memory.memoryMode, device?.name);
     if (r.taskBindingError || r.appContextError) { note = { text: T.recordFailed, error: true, sticky: true }; return; }
     if (r.taskStateError) { state = null; choosing = false; show(null); note = { text: T.stateFailed, error: true, sticky: true }; return; }
     choosing = false; accept(r);
