@@ -346,7 +346,7 @@ unzip -Z1 /tmp/my-plugin-1.0.0.cindy
 沿用有效记录，不要求每次改措辞都重新安装整个插件。
 
 `taptap-maker/vendor/taptap-maker/` 固定随插件分发官方
-`@taptap/maker@0.0.37`。升级时应整体替换 npm 包发布内容并同步更新插件版本，
+`@taptap/maker@0.0.39`。升级时应整体替换 npm 包发布内容并同步更新插件版本，
 在官方包包含等价修复前，保留以下经审查的 Cindy 兼容补丁：
 
 - `normalizeRemoteProxyExecutionState` 接受 `executed`，保留确定已执行状态
@@ -366,11 +366,18 @@ unzip -Z1 /tmp/my-plugin-1.0.0.cindy
 - Cindy 分发隐藏控制台模型设置入口，不支持自定义 API 配置；识图仅用 Server API，
   服务不可用时直接报错，不回退到其他识图方式。
 
+- 云端 Git 提交超时且无法核实时保留 unknown，禁用盲目重试提示；兼容新旧云端阻塞文本，准确区分云端已提交与本地尚未完成的步骤。
+- 画布结果未知的请求保留重发保护，015 自动流程等待超限后暂停；准备及恢复等待阶段也可停止后续，不取消已经提交的远端任务。
+
 除以上补丁和保留的 `LICENSE` 外，vendor 文件必须与官方 npm 包一致。
 每次升级都需核对补丁清单和回归测试，不要增加无关的 bundle 手工修改。
 
 历史故障、已被替换的修复及升级验收要求见
 [Maker 维护避坑清单](./docs/taptap-maker-maintenance.zh-CN.md)。
+
+插件 2.1.25 将所有动态 Maker 工具、工具发现及长耗时账号操作的请求窗口从 60 秒
+调至 120 秒，沿用已有的进度续期及 15 分钟总上限，不新增定时心跳。没有进度的
+请求仍可能在 120 秒超时；这不等于无限等待，也不保证大图生成一定能在窗口内完成。
 
 插件 2.1.17 新增 `maker_validate`，通过当前可信工作区和随包 Runtime 做本地 Lua
 验证/截图；Cindy Manual 提供流程，不依赖项目 Skill 安装，不自动安装 Runtime、
