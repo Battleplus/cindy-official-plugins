@@ -104,6 +104,11 @@
     },
     "gitea": {
       "audience": { "emails": [] }
+    },
+    "podcast-insights": {
+      "audience": {
+        "emails": []
+      }
     }
   }
 }
